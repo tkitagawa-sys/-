@@ -1,0 +1,9 @@
+{
+  "name": "敷き鉄板 貸出管理",
+  "short_name": "鉄板管理",
+  "description": "敷き鉄板の貸出・撤去・在庫を管理するアプリ",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#13151a",
+  "theme_color": "#13151a"
+}
