@@ -1,4 +1,4 @@
-const CACHE_NAME = "teppan-v1";
+const CACHE_NAME = "teppan-v2";
 const APP_SHELL = ["./", "./index.html", "./app.js", "./seed.js", "./manifest.json"];
 
 self.addEventListener("install", (event) => {

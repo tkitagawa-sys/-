@@ -215,6 +215,68 @@ function ReturnForm({ record, onSave, onClose }) {
   );
 }
 
+/* ---------- 実質在庫（置き場で数えた枚数） ---------- */
+
+function ActualStockForm({ settings, calcStock, onSave, onClose }) {
+  const [n, setN] = useState(settings.actualStock ?? Math.max(calcStock, 0));
+  const [date, setDate] = useState(todayISO());
+  return (
+    <Modal title="実質在庫を入力" onClose={onClose}>
+      <div style={{ fontSize: 13, color: C.sub, marginBottom: 16, lineHeight: 1.6 }}>
+        置き場にある敷き鉄板を実際に数えた枚数を入力してください。貸出記録の枚数が不明・不正確でも、実際の在庫と貸出枚数がわかります。
+      </div>
+      <Field label="確認日"><input type="date" style={inputStyle} value={date} onChange={e => setDate(e.target.value)} /></Field>
+      <Field label="置き場の枚数"><Stepper value={n} onChange={setN} /></Field>
+      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+        {settings.actualStock != null && (
+          <Btn color="#3a1f24" fg={C.red} onClick={() => onSave(null, "")}>クリア</Btn>
+        )}
+        <Btn color={C.green} fg="#0b2416" style={{ flex: 1 }} onClick={() => onSave(n, date)}>保存</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function ActualStockCard({ settings, lent, calcStock, onEdit }) {
+  const actual = settings.actualStock;
+  const has = actual !== null && actual !== undefined;
+  const actualLent = settings.totalSheets - (actual || 0);
+  const diff = has ? actual - calcStock : 0;
+  return (
+    <div onClick={onEdit} style={{
+      background: C.card, borderRadius: 14, padding: "14px 16px", marginBottom: 16, cursor: "pointer",
+      border: `1px solid ${has ? "#4a3a1c" : C.line}`,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: 12, color: C.sub }}>
+            実質在庫（置き場で確認）{has && settings.actualStockDate && <span> ・ {fmtDate(settings.actualStockDate)}確認</span>}
+          </div>
+          {has ? (
+            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 30, fontWeight: 500, color: C.amber, marginTop: 2 }}>
+              {actual}<span style={{ fontSize: 12, color: C.sub, marginLeft: 2 }}>枚</span>
+            </div>
+          ) : (
+            <div style={{ fontSize: 14, color: C.dim, marginTop: 6 }}>未入力 ― 置き場の枚数を数えて入力</div>
+          )}
+        </div>
+        <span style={{ padding: "8px 12px", borderRadius: 10, background: "#3a2e18", color: C.amber, fontSize: 13, fontWeight: 700 }}>
+          {has ? "更新" : "入力"}
+        </span>
+      </div>
+      {has && (
+        <div style={{ display: "flex", gap: 16, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.line}`, fontSize: 12, color: C.sub, flexWrap: "wrap" }}>
+          <div>実質貸出 <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 15, color: C.text }}>{actualLent}枚</span></div>
+          <div>記録との差 <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 15, color: diff === 0 ? C.green : C.amber }}>
+            {diff > 0 ? "+" : ""}{diff}枚</span>
+            <span style={{ color: C.dim }}>（記録上の貸出 {lent}枚）</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------- 設定・バックアップ ---------- */
 
 function SettingsPanel({ settings, setSettings, records, setRecords, onClose }) {
@@ -356,6 +418,7 @@ function App() {
   const [editing, setEditing] = useState(null);
   const [returning, setReturning] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [editStock, setEditStock] = useState(false);
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); }, [records]);
   useEffect(() => { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
@@ -418,7 +481,7 @@ function App() {
         {[
           ["総枚数", settings.totalSheets, C.text],
           ["貸出中", lent, C.green],
-          ["現在在庫", stock, stock < 0 ? C.red : C.blue],
+          ["計算在庫", stock, stock < 0 ? C.red : C.blue],
         ].map(([label, v, color]) => (
           <div key={label} style={{ background: C.card, borderRadius: 14, padding: "12px 8px", textAlign: "center", border: `1px solid ${C.line}` }}>
             <div style={{ fontSize: 11, color: C.sub }}>{label}</div>
@@ -430,9 +493,10 @@ function App() {
       </div>
       {stock < 0 && (
         <div style={{ fontSize: 12, color: C.red, marginBottom: 12 }}>
-          在庫がマイナスです。総枚数（設定）か、撤去済みの記録を確認してください。
+          計算在庫がマイナスです。総枚数（設定）か、撤去済みの記録を確認してください。
         </div>
       )}
+      <ActualStockCard settings={settings} lent={lent} calcStock={stock} onEdit={() => setEditStock(true)} />
 
       <div style={{ display: "flex", gap: 6, marginBottom: 12, overflowX: "auto" }}>
         {tabs.map(([key, label]) => (
@@ -462,6 +526,8 @@ function App() {
       {editing && <RecordForm initial={editing} companies={companies} persons={persons}
         onSave={save} onDelete={remove} onClose={() => setEditing(null)} />}
       {returning && <ReturnForm record={returning} onSave={save} onClose={() => setReturning(null)} />}
+      {editStock && <ActualStockForm settings={settings} calcStock={stock} onClose={() => setEditStock(false)}
+        onSave={(n, date) => { setSettings({ ...settings, actualStock: n, actualStockDate: date }); setEditStock(false); }} />}
       {showSettings && <SettingsPanel settings={settings} setSettings={setSettings}
         records={records} setRecords={setRecords} onClose={() => setShowSettings(false)} />}
     </div>
