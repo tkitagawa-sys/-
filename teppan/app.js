@@ -458,7 +458,7 @@ function App() {
   const remove = (id) => { setRecords(records.filter(r => r.id !== id)); setEditing(null); };
 
   const tabs = [
-    ["active", `貸出中 ${records.filter(r => r.status === "active").length}`],
+    ["active", `貸出中 ${lent}枚`],
     ["returned", "撤去済み"],
     ["all", "すべて"],
     ["company", "貸出先別"],
@@ -511,6 +511,12 @@ function App() {
         <>
           <input value={query} onChange={e => setQuery(e.target.value)} placeholder="貸出先・現場名・担当者で検索"
             style={{ ...inputStyle, marginBottom: 12 }} />
+          {list.length > 0 && (
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 8, textAlign: "right" }}>
+              {list.length}件 ・ 合計 <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 15, fontWeight: 700, color: tab === "active" ? C.green : C.text }}>
+                {list.reduce((s, r) => s + (r.count || 0), 0)}枚</span>
+            </div>
+          )}
           {list.length === 0
             ? <div style={{ color: C.sub, textAlign: "center", padding: 40 }}>該当する記録はありません</div>
             : list.map(r => <RecordCard key={r.id} r={r} onEdit={setEditing} onReturn={setReturning} />)}
