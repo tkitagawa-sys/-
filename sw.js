@@ -1,4 +1,4 @@
-const CACHE_NAME = "freight-calc-v8";
+const CACHE_NAME = "freight-calc-v9";
 const APP_SHELL = ["/", "/index.html", "/app.js", "/manifest.json"];
 
 self.addEventListener("install", (event) => {

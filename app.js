@@ -20,6 +20,42 @@ const OFFICE_COST = 3300;
 
 const STORAGE_KEY = "freight-calc-history-v1";
 const VEHICLE_STORAGE_KEY = "freight-calc-vehicles-v1";
+const VEHICLE_SEED_KEY = "freight-calc-vehicles-seeded-v1";
+
+// 車両一覧表（2025/10/1版）から登録した車両。ドライバー名・番号はアプリ上で入力する
+const DEFAULT_VEHICLES = [
+  { carNo: "富山 100 を 3333", type: "ユニック", capacity: "10,300kg" },
+  { carNo: "富山 130 け 17", type: "ユニック", capacity: "10,100kg" },
+  { carNo: "富山 130 え 410", type: "ユニック付セルフ", capacity: "8,800kg" },
+  { carNo: "富山 100 こ 1111", type: "ユニック", capacity: "7,000kg" },
+  { carNo: "富山 130 を 77", type: "ユニック", capacity: "6,900kg" },
+  { carNo: "富山 130 あ 409", type: "ユニック", capacity: "6,900kg" },
+  { carNo: "富山 130 い 99", type: "ユニック", capacity: "6,800kg" },
+  { carNo: "富山 130 う 52", type: "ユニック", capacity: "6,800kg" },
+  { carNo: "富山 130 き 28", type: "ユニック", capacity: "6,800kg" },
+  { carNo: "富山 130 あ 42", type: "ユニック", capacity: "6,800kg" },
+  { carNo: "富山 100 け 2222", type: "ユニック", capacity: "6,700kg" },
+  { carNo: "富山 130 を 110", type: "ユニック", capacity: "6,700kg" },
+  { carNo: "富山 130 い 6600", type: "ユニック", capacity: "6,600kg" },
+  { carNo: "富山 131 あ 10", type: "ユニック", capacity: "6,600kg" },
+  { carNo: "富山 130 え 611", type: "ユニック", capacity: "6,600kg" },
+  { carNo: "富山 130 え 310", type: "ユニック", capacity: "6,200kg" },
+  { carNo: "富山 130 う 130", type: "ユニック", capacity: "3,050kg" },
+  { carNo: "富山 130 え 208", type: "ユニック", capacity: "3,050kg" },
+  { carNo: "富山 100 い 536", type: "ユニック", capacity: "2,550kg" },
+  { carNo: "富山 130 え 704", type: "ユニック", capacity: "6,900kg" },
+  { carNo: "富山 130 き 705", type: "ユニック", capacity: "6,600kg" },
+  { carNo: "富山 100 か 9455", type: "ウイング", capacity: "13,900kg" },
+  { carNo: "富山 130 あ 504", type: "ウイング", capacity: "13,900kg" },
+  { carNo: "富山 130 い 1133", type: "ウイング", capacity: "2,950kg" },
+  { carNo: "富山 130 う 64", type: "ウイング", capacity: "2,550kg" },
+  { carNo: "富山 130 う 612", type: "ウイング", capacity: "2,550kg" },
+  { carNo: "富山 130 き 35", type: "ウイング", capacity: "3,150kg" },
+  { carNo: "富山 130 い 74", type: "ウイング", capacity: "2,700kg" },
+  { carNo: "富山 107 う 1", type: "ロール", capacity: "7,700kg" },
+  { carNo: "富山 103 う 2", type: "ロール", capacity: "7,700kg" },
+  { carNo: "富山 102 を 3", type: "ロール", capacity: "7,800kg" },
+];
 
 /* ---------- 保存まわり（端末内 localStorage） ---------- */
 
@@ -307,6 +343,23 @@ function loadVehicles() {
   }
 }
 
+// 初回だけ車両一覧表の車番を追加する（一度入れた後に削除した車両は復活させない）
+function seedVehicles(list) {
+  if (localStorage.getItem(VEHICLE_SEED_KEY)) return list;
+  const existing = new Set(list.map(v => normalizeCarNo(v.carNo)));
+  const added = DEFAULT_VEHICLES
+    .filter(d => !existing.has(normalizeCarNo(d.carNo)))
+    .map((d, i) => ({ id: `seed-${i}`, number: "", driver: "", ...d }));
+  const next = [...list, ...added];
+  saveVehicles(next);
+  localStorage.setItem(VEHICLE_SEED_KEY, "1");
+  return next;
+}
+
+function normalizeCarNo(s) {
+  return (s || "").replace(/\s/g, "");
+}
+
 function saveVehicles(list) {
   localStorage.setItem(VEHICLE_STORAGE_KEY, JSON.stringify(list));
 }
@@ -322,7 +375,7 @@ function downloadVehiclesCSV(list) {
     const s = val === undefined || val === null ? "" : String(val);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const rows = [["車番", "番号", "ドライバー"], ...list.map(v => [v.carNo, v.number, v.driver])];
+  const rows = [["車番", "番号", "ドライバー", "車種", "最大積載量"], ...list.map(v => [v.carNo, v.number, v.driver, v.type, v.capacity])];
   const csv = rows.map(r => r.map(esc).join(",")).join("\r\n");
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -346,7 +399,7 @@ function VehicleListPanel() {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ carNo: "", number: "", driver: "" });
 
-  useEffect(() => { setVehicles(loadVehicles()); }, []);
+  useEffect(() => { setVehicles(seedVehicles(loadVehicles())); }, []);
 
   const update = (next) => { setVehicles(next); saveVehicles(next); };
 
@@ -371,16 +424,17 @@ function VehicleListPanel() {
     setEditingId(null);
   };
 
-  const q = query.trim().toLowerCase();
+  const q = normalizeCarNo(query).toLowerCase();
   const filtered = q
-    ? vehicles.filter(v => [v.carNo, v.number, v.driver].some(f => (f || "").toLowerCase().includes(q)))
+    ? vehicles.filter(v => [v.carNo, v.number, v.driver, v.type].some(f => normalizeCarNo(f).toLowerCase().includes(q)))
     : vehicles;
 
   const editForm = (
     <div style={{ background: "#13151a", borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", gap: 8, border: "1px solid #2a6ef5" }}>
-      <input value={form.carNo} onChange={e => setForm({ ...form, carNo: e.target.value })} placeholder="車番（例：1234）" style={inputStyle} />
+      <input value={form.carNo} onChange={e => setForm({ ...form, carNo: e.target.value })} placeholder="車番（例：富山 130 あ 42）" style={inputStyle} />
       <input value={form.number} onChange={e => setForm({ ...form, number: e.target.value })} placeholder="番号（電話番号など）" inputMode="tel" style={inputStyle} />
-      <input value={form.driver} onChange={e => setForm({ ...form, driver: e.target.value })} placeholder="ドライバー名" style={inputStyle} />
+      <input value={form.driver} onChange={e => setForm({ ...form, driver: e.target.value })} placeholder="ドライバー名" list="driver-names" style={inputStyle} />
+      <datalist id="driver-names">{DRIVERS.map(d => <option key={d} value={d} />)}</datalist>
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={submit} style={{
           flex: 1, padding: "10px", borderRadius: 8, border: "none", background: "#2a6ef5",
@@ -408,7 +462,7 @@ function VehicleListPanel() {
         type="search"
         value={query}
         onChange={e => setQuery(e.target.value)}
-        placeholder="🔍 車番・番号・名前で検索"
+        placeholder="🔍 車番・番号・名前で検索（例：3333）"
         style={{ ...inputStyle, fontSize: 15, padding: "12px", marginBottom: 12 }}
       />
 
@@ -451,7 +505,14 @@ function VehicleListPanel() {
               <tr key={v.id}><td colSpan={4} style={{ padding: "6px 0" }}>{editForm}</td></tr>
             ) : (
               <tr key={v.id} style={{ borderTop: "1px solid #2a2d35" }}>
-                <td style={{ padding: "10px 4px", color: "#e8eaf0", fontWeight: 700, fontFamily: "'DM Mono', monospace" }}>{v.carNo || "—"}</td>
+                <td style={{ padding: "10px 4px", color: "#e8eaf0", fontWeight: 700 }}>
+                  {v.carNo || "—"}
+                  {(v.type || v.capacity) && (
+                    <div style={{ fontSize: 11, color: "#6a6f78", fontWeight: 400, marginTop: 2 }}>
+                      {[v.type, v.capacity].filter(Boolean).join(" ・ ")}
+                    </div>
+                  )}
+                </td>
                 <td style={{ padding: "10px 4px", fontFamily: "'DM Mono', monospace", wordBreak: "break-all" }}>
                   {telHref(v.number)
                     ? <a href={telHref(v.number)} style={{ color: "#60a5fa", textDecoration: "none" }}>{v.number}</a>
