@@ -19,6 +19,7 @@ const REPAIR_COST = 1500;
 const OFFICE_COST = 3300;
 
 const STORAGE_KEY = "freight-calc-history-v1";
+const VEHICLE_STORAGE_KEY = "freight-calc-vehicles-v1";
 
 /* ---------- 保存まわり（端末内 localStorage） ---------- */
 
@@ -294,6 +295,188 @@ function HistoryPanel({ records, driverFilter, setDriverFilter, onDelete, onClea
   );
 }
 
+/* ---------- 車両・ドライバー一覧 ---------- */
+
+function loadVehicles() {
+  try {
+    const raw = localStorage.getItem(VEHICLE_STORAGE_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveVehicles(list) {
+  localStorage.setItem(VEHICLE_STORAGE_KEY, JSON.stringify(list));
+}
+
+// 数字が10桁以上なら電話番号とみなしてタップで発信できるようにする
+function telHref(num) {
+  const digits = (num || "").replace(/[^\d+]/g, "");
+  return digits.replace(/\D/g, "").length >= 10 ? `tel:${digits}` : null;
+}
+
+function downloadVehiclesCSV(list) {
+  const esc = (val) => {
+    const s = val === undefined || val === null ? "" : String(val);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const rows = [["車番", "番号", "ドライバー"], ...list.map(v => [v.carNo, v.number, v.driver])];
+  const csv = rows.map(r => r.map(esc).join(",")).join("\r\n");
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "車両ドライバー一覧.csv";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+const inputStyle = {
+  width: "100%", padding: "10px", borderRadius: 8, border: "1px solid #2a2d35",
+  background: "#13151a", color: "#e8eaf0", fontSize: 14, fontFamily: "'Noto Sans JP', sans-serif"
+};
+
+function VehicleListPanel() {
+  const [vehicles, setVehicles] = useState([]);
+  const [query, setQuery] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState({ carNo: "", number: "", driver: "" });
+
+  useEffect(() => { setVehicles(loadVehicles()); }, []);
+
+  const update = (next) => { setVehicles(next); saveVehicles(next); };
+
+  const startNew = () => { setEditingId("new"); setForm({ carNo: "", number: "", driver: "" }); };
+  const startEdit = (v) => { setEditingId(v.id); setForm({ carNo: v.carNo, number: v.number, driver: v.driver }); };
+  const cancel = () => setEditingId(null);
+
+  const submit = () => {
+    const entry = { carNo: form.carNo.trim(), number: form.number.trim(), driver: form.driver.trim() };
+    if (!entry.carNo && !entry.number && !entry.driver) return;
+    if (editingId === "new") {
+      update([...vehicles, { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, ...entry }]);
+    } else {
+      update(vehicles.map(v => v.id === editingId ? { ...v, ...entry } : v));
+    }
+    setEditingId(null);
+  };
+
+  const remove = (v) => {
+    if (!confirm(`「${v.carNo || "車番なし"} / ${v.driver || "名前なし"}」を削除しますか？`)) return;
+    update(vehicles.filter(x => x.id !== v.id));
+    setEditingId(null);
+  };
+
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? vehicles.filter(v => [v.carNo, v.number, v.driver].some(f => (f || "").toLowerCase().includes(q)))
+    : vehicles;
+
+  const editForm = (
+    <div style={{ background: "#13151a", borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", gap: 8, border: "1px solid #2a6ef5" }}>
+      <input value={form.carNo} onChange={e => setForm({ ...form, carNo: e.target.value })} placeholder="車番（例：1234）" style={inputStyle} />
+      <input value={form.number} onChange={e => setForm({ ...form, number: e.target.value })} placeholder="番号（電話番号など）" inputMode="tel" style={inputStyle} />
+      <input value={form.driver} onChange={e => setForm({ ...form, driver: e.target.value })} placeholder="ドライバー名" style={inputStyle} />
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={submit} style={{
+          flex: 1, padding: "10px", borderRadius: 8, border: "none", background: "#2a6ef5",
+          color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'Noto Sans JP', sans-serif"
+        }}>保存</button>
+        <button onClick={cancel} style={{
+          padding: "10px 14px", borderRadius: 8, border: "1px solid #3a3d45", background: "transparent",
+          color: "#8a8f98", fontSize: 13, cursor: "pointer", fontFamily: "'Noto Sans JP', sans-serif"
+        }}>キャンセル</button>
+        {editingId !== "new" && (
+          <button onClick={() => remove(vehicles.find(v => v.id === editingId))} style={{
+            padding: "10px 14px", borderRadius: 8, border: "1px solid #ff6b6b66", background: "transparent",
+            color: "#ff6b6b", fontSize: 13, cursor: "pointer", fontFamily: "'Noto Sans JP', sans-serif"
+          }}>削除</button>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ background: "#1a1d24", borderRadius: 16, padding: 24, border: "1px solid #2a2d35" }}>
+      <div style={{ fontSize: 12, color: "#555", letterSpacing: 2, marginBottom: 16 }}>車両・ドライバー一覧（{vehicles.length}件）</div>
+
+      <input
+        type="search"
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        placeholder="🔍 車番・番号・名前で検索"
+        style={{ ...inputStyle, fontSize: 15, padding: "12px", marginBottom: 12 }}
+      />
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <button onClick={startNew} disabled={editingId !== null} style={{
+          flex: 1, padding: "10px", borderRadius: 8, border: "none", background: "#2a6ef5",
+          color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer",
+          fontFamily: "'Noto Sans JP', sans-serif", opacity: editingId !== null ? 0.5 : 1
+        }}>＋ 追加</button>
+        {vehicles.length > 0 && (
+          <button onClick={() => downloadVehiclesCSV(vehicles)} style={{
+            padding: "10px 14px", borderRadius: 8, border: "none", background: "#1e6f3f",
+            color: "#d5f5e3", fontSize: 13, fontWeight: 700, cursor: "pointer",
+            fontFamily: "'Noto Sans JP', sans-serif", flexShrink: 0
+          }}>📊 CSV</button>
+        )}
+      </div>
+
+      {editingId === "new" && <div style={{ marginBottom: 8 }}>{editForm}</div>}
+
+      {vehicles.length === 0 && editingId === null && (
+        <div style={{ fontSize: 12, color: "#8a8f98" }}>「＋ 追加」から車番・番号・ドライバー名を登録してください</div>
+      )}
+      {vehicles.length > 0 && filtered.length === 0 && (
+        <div style={{ fontSize: 12, color: "#8a8f98" }}>「{query}」に一致する登録はありません</div>
+      )}
+
+      {filtered.length > 0 && (
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+          <thead>
+            <tr style={{ color: "#555", fontSize: 12 }}>
+              <th style={{ textAlign: "left", padding: "6px 4px", fontWeight: 400 }}>車番</th>
+              <th style={{ textAlign: "left", padding: "6px 4px", fontWeight: 400 }}>番号</th>
+              <th style={{ textAlign: "left", padding: "6px 4px", fontWeight: 400 }}>ドライバー</th>
+              <th style={{ width: 44 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(v => editingId === v.id ? (
+              <tr key={v.id}><td colSpan={4} style={{ padding: "6px 0" }}>{editForm}</td></tr>
+            ) : (
+              <tr key={v.id} style={{ borderTop: "1px solid #2a2d35" }}>
+                <td style={{ padding: "10px 4px", color: "#e8eaf0", fontWeight: 700, fontFamily: "'DM Mono', monospace" }}>{v.carNo || "—"}</td>
+                <td style={{ padding: "10px 4px", fontFamily: "'DM Mono', monospace", wordBreak: "break-all" }}>
+                  {telHref(v.number)
+                    ? <a href={telHref(v.number)} style={{ color: "#60a5fa", textDecoration: "none" }}>{v.number}</a>
+                    : <span style={{ color: "#c8cad0" }}>{v.number || "—"}</span>}
+                </td>
+                <td style={{ padding: "10px 4px", color: "#e8eaf0" }}>{v.driver || "—"}</td>
+                <td style={{ padding: "10px 0", textAlign: "right" }}>
+                  <button onClick={() => startEdit(v)} disabled={editingId !== null} style={{
+                    background: "none", border: "none", color: "#8a8f98", fontSize: 12,
+                    cursor: "pointer", textDecoration: "underline", opacity: editingId !== null ? 0.4 : 1
+                  }}>編集</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <div style={{ fontSize: 11, color: "#444", marginTop: 12, lineHeight: 1.6 }}>
+        ※番号が電話番号ならタップで発信できます / データはこの端末内に保存されます
+      </div>
+    </div>
+  );
+}
+
 /* ---------- メイン ---------- */
 
 function App() {
@@ -309,6 +492,7 @@ function App() {
   const [records, setRecords] = useState([]);
   const [driverFilter, setDriverFilter] = useState("全員");
   const [saveStatus, setSaveStatus] = useState("");
+  const [tab, setTab] = useState("calc");
 
   useEffect(() => { setRecords(loadRecords()); }, []);
 
@@ -359,6 +543,19 @@ function App() {
           <div style={{ fontSize: 11, letterSpacing: 4, color: "#555", marginBottom: 8, textTransform: "uppercase" }}>Freight Rate Calculator</div>
           <h1 style={{ fontSize: 28, fontWeight: 900, color: "#e8eaf0", margin: 0, lineHeight: 1.2 }}>運賃適正価格<br />計算ツール</h1>
         </div>
+
+        <div style={{ display: "flex", gap: 4, marginBottom: 24, background: "#1a1d24", borderRadius: 10, padding: 4, border: "1px solid #2a2d35" }}>
+          {[["calc", "運賃計算"], ["vehicles", "車両・ドライバー一覧"]].map(([key, label]) => (
+            <button key={key} onClick={() => setTab(key)} style={{
+              flex: 1, padding: "10px", borderRadius: 8, border: "none",
+              background: tab === key ? "#2a6ef5" : "transparent",
+              color: tab === key ? "#fff" : "#8a8f98", fontSize: 13, fontWeight: 700,
+              cursor: "pointer", fontFamily: "'Noto Sans JP', sans-serif"
+            }}>{label}</button>
+          ))}
+        </div>
+
+        {tab === "vehicles" ? <VehicleListPanel /> : <>
 
         <div style={{ marginBottom: 28 }}>
           <div style={{ fontSize: 13, color: "#8a8f98", marginBottom: 10 }}>ドライバー選択</div>
@@ -464,6 +661,7 @@ function App() {
           onDelete={handleDelete}
           onClearAll={handleClearAll}
         />
+        </>}
 
         <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: "#333", lineHeight: 1.8 }}>
           ※概算値です。実際のコストに合わせてパラメータを調整してください<br />
