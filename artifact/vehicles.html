@@ -1,0 +1,279 @@
+<title>車両・ドライバー一覧</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="車両一覧">
+<meta name="theme-color" content="#1f5f9e">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  /* Layout: sticky blue header + search, then a single column of vehicle rows (受注・断り管理と同じ配色) */
+  :root{
+    --bg:#f3f5f8; --card:#ffffff; --border:#e1e6ed; --text:#182233; --sub:#5b6b82;
+    --accent:#1f5f9e; --accent-dark:#164b80; --accent-soft:#e8f1fa;
+    --red:#b23b3b; --red-soft:#fbe9e8; --gray-soft:#eef1f5;
+    --radius:14px; --shadow:0 1px 3px rgba(20,30,50,0.07), 0 1px 2px rgba(20,30,50,0.04);
+    --font:"Noto Sans JP",-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#10151d; --card:#181f2a; --border:#2a3340; --text:#e8edf4; --sub:#93a2b6;
+      --accent:#5b9bdb; --accent-dark:#7db1e6; --accent-soft:#1b2a3a;
+      --red:#e08585; --red-soft:#2b1a1a; --gray-soft:#1e2530; color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#10151d; --card:#181f2a; --border:#2a3340; --text:#e8edf4; --sub:#93a2b6;
+    --accent:#5b9bdb; --accent-dark:#7db1e6; --accent-soft:#1b2a3a;
+    --red:#e08585; --red-soft:#2b1a1a; --gray-soft:#1e2530; color-scheme:dark;
+  }
+  *{box-sizing:border-box;}
+  body{background:var(--bg); color:var(--text); font-family:var(--font); padding-block:0 32px;}
+  header{
+    background:linear-gradient(135deg,#1f5f9e,#164b80); color:#fff;
+    padding:14px 16px 12px; position:sticky; top:env(safe-area-inset-top,0px); z-index:20;
+    box-shadow:0 2px 10px rgba(15,40,70,0.18);
+  }
+  .titlerow{display:flex; align-items:center; justify-content:space-between; gap:8px;}
+  h1{margin:0; font-size:17px; font-weight:800;}
+  .status{font-size:11px; font-weight:700; padding:3px 9px; border-radius:20px; background:rgba(255,255,255,0.16); white-space:nowrap;}
+  .status.bad{background:rgba(255,80,80,0.35);}
+  .search{margin-top:10px; position:relative;}
+  .search input{
+    width:100%; padding:12px 14px; border-radius:10px; border:none; font-size:16px;
+    font-family:inherit; background:#fff; color:#182233;
+  }
+  .search input:focus{outline:3px solid rgba(255,255,255,0.5);}
+  main{padding:14px 16px; max-width:640px; margin:0 auto;}
+  .toolbar{display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap;}
+  .count{font-size:12.5px; color:var(--sub); font-weight:700; flex:1; min-width:120px;}
+  .filters{display:flex; gap:6px; overflow-x:auto; margin-bottom:12px; padding-bottom:2px;}
+  .filters button{
+    flex-shrink:0; padding:7px 13px; border-radius:20px; border:1.5px solid var(--border);
+    background:var(--card); font-size:12.5px; font-weight:700; color:var(--sub); cursor:pointer; font-family:inherit;
+  }
+  .filters button.active{background:var(--accent); border-color:var(--accent); color:#fff;}
+  .btn{
+    padding:10px 14px; border-radius:10px; border:none; font-size:14px; font-weight:800;
+    cursor:pointer; font-family:inherit;
+  }
+  .btn-primary{background:var(--accent); color:#fff;}
+  .btn-gray{background:var(--gray-soft); color:var(--sub); border:1px solid var(--border);}
+  .btn-red{background:var(--red); color:#fff;}
+  .btn-sm{padding:7px 10px; font-size:12.5px; border-radius:8px;}
+  .btn:focus-visible, .filters button:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+  .list{background:var(--card); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden;}
+  .row{display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 12px; padding:12px 14px; border-top:1px solid var(--border); align-items:center;}
+  .row:first-child{border-top:none;}
+  .row.unset .driver{color:var(--sub); font-weight:500;}
+  .plate{font-size:16px; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:.02em;}
+  .spec{font-size:11.5px; color:var(--sub); margin-top:1px;}
+  .who{display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; margin-top:5px;}
+  .driver{font-size:15px; font-weight:700;}
+  .num{font-size:14px; font-variant-numeric:tabular-nums; color:var(--accent-dark); user-select:all; text-decoration:none;}
+  .row-actions{display:flex; flex-direction:column; gap:6px;}
+  .empty{text-align:center; color:var(--sub); font-size:13px; padding:34px 12px;}
+  .note{font-size:11.5px; color:var(--sub); margin-top:12px; line-height:1.7;}
+  label{display:block; font-size:12px; color:var(--sub); margin:12px 0 5px; font-weight:700;}
+  .modal input{
+    width:100%; padding:11px 12px; border:1px solid var(--border); border-radius:10px;
+    font-size:16px; background:var(--bg); color:var(--text); font-family:inherit;
+  }
+  .modal input:focus{outline:2px solid var(--accent); outline-offset:1px;}
+  .modal-bg{position:fixed; inset:0; background:rgba(10,15,25,0.5); display:flex; align-items:flex-end; justify-content:center; z-index:100;}
+  .modal{
+    background:var(--card); width:100%; max-width:640px; border-radius:18px 18px 0 0;
+    padding:18px 16px calc(24px + env(safe-area-inset-bottom,0px)); max-height:90vh; overflow-y:auto;
+  }
+  .modal h3{margin:0; font-size:16px; font-weight:800;}
+  .modal .sub{font-size:12.5px; color:var(--sub); margin-top:3px;}
+  .modal-actions{display:flex; gap:8px; margin-top:18px;}
+  .modal-actions .btn{flex:1;}
+  .confirm-del{margin-top:14px; padding:12px; border-radius:10px; background:var(--red-soft); font-size:13px;}
+  .toast{
+    position:fixed; bottom:calc(20px + env(safe-area-inset-bottom,0px)); left:50%; transform:translateX(-50%);
+    background:var(--text); color:var(--bg); padding:10px 18px; border-radius:20px; font-size:13px;
+    z-index:200; opacity:0; transition:opacity .25s; pointer-events:none; max-width:calc(100vw - 32px);
+  }
+  .toast.show{opacity:1;}
+  @media (prefers-reduced-motion: reduce){ .toast{transition:none;} }
+</style>
+
+<header>
+  <div class="titlerow">
+    <h1>車両・ドライバー一覧</h1>
+    <span class="status" id="connStatus">接続中…</span>
+  </div>
+  <div class="search">
+    <input type="search" id="q" placeholder="🔍 車番・名前・番号で検索（例：3333）" autocomplete="off">
+  </div>
+</header>
+
+<main>
+  <div class="filters" id="filters">
+    <button data-f="all" class="active">すべて</button>
+    <button data-f="ユニック">ユニック</button>
+    <button data-f="ウイング">ウイング</button>
+    <button data-f="ロール">ロール</button>
+    <button data-f="unset">ドライバー未入力</button>
+  </div>
+  <div class="toolbar">
+    <div class="count" id="count"></div>
+    <button class="btn btn-primary btn-sm" id="addBtn">＋ 車両を追加</button>
+  </div>
+  <div class="list" id="list"><div class="empty">車両データを読み込んでいます…</div></div>
+  <p class="note">各行の「編集」でドライバー名と番号を入力できます。入力内容はこのページを開く全員に共有されます。<br>番号は長押しでコピーできます。</p>
+</main>
+
+<div id="modalRoot"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const FALLBACK_KEY = 'vehicleList_fallback_v1';
+let db = null;
+let vehicles = [];
+let query = '';
+let filter = 'all';
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function norm(s){ return String(s||'').replace(/\s/g,'').toLowerCase(); }
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(()=>t.classList.remove('show'), 2000);
+}
+function setStatus(text, ok){
+  const el = document.getElementById('connStatus');
+  el.textContent = text; el.classList.toggle('bad', !ok);
+}
+// 数字が10桁以上なら電話番号とみなす
+function telHref(n){ const d = String(n||'').replace(/[^\d+]/g,''); return d.replace(/\D/g,'').length >= 10 ? 'tel:'+d : null; }
+
+/* ---------- 保存（共有db、使えない時だけこの端末に保存） ---------- */
+function fallbackLoad(){ try{ const a = JSON.parse(localStorage.getItem(FALLBACK_KEY)||'[]'); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+function fallbackSave(){ try{ localStorage.setItem(FALLBACK_KEY, JSON.stringify(vehicles)); }catch(e){} }
+
+async function init(){
+  try{ if(window.claude && typeof window.claude.use==='function') db = await window.claude.use('db'); }catch(e){ db = null; }
+  if(db){
+    setStatus('共有保存 オン', true);
+    db.collection('vehicles').onSnapshot(snap=>{
+      vehicles = snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
+      render();
+    }, err=>{ console.error(err); setStatus('接続エラー', false); });
+  }else{
+    setStatus('この端末のみ', false);
+    vehicles = fallbackLoad();
+    render();
+  }
+}
+
+async function saveVehicle(id, data){
+  if(!db){
+    const i = vehicles.findIndex(v=>v.id===id);
+    if(i>=0) vehicles[i] = Object.assign({}, vehicles[i], data); else vehicles.push(Object.assign({id}, data));
+    fallbackSave(); render(); return true;
+  }
+  try{ await db.collection('vehicles').doc(id).set(data); return true; }
+  catch(e){ console.error(e); toast('保存できませんでした。編集の権限があるか確認してください'); return false; }
+}
+async function deleteVehicle(id){
+  if(!db){ vehicles = vehicles.filter(v=>v.id!==id); fallbackSave(); render(); return true; }
+  try{ await db.collection('vehicles').doc(id).delete(); return true; }
+  catch(e){ console.error(e); toast('削除できませんでした'); return false; }
+}
+
+/* ---------- 一覧 ---------- */
+function sorted(){
+  return vehicles.slice().sort((a,b)=>(a.order ?? 9999)-(b.order ?? 9999) || String(a.carNo).localeCompare(String(b.carNo),'ja'));
+}
+function render(){
+  const q = norm(query);
+  let list = sorted();
+  if(filter==='unset') list = list.filter(v=>!v.driver);
+  else if(filter!=='all') list = list.filter(v=>String(v.type||'').includes(filter));
+  if(q) list = list.filter(v=>[v.carNo, v.driver, v.number, v.type].some(f=>norm(f).includes(q)));
+  const filled = vehicles.filter(v=>v.driver).length;
+  document.getElementById('count').textContent =
+    `${list.length}台表示 ／ 全${vehicles.length}台（ドライバー入力済み ${filled}台）`;
+  const el = document.getElementById('list');
+  if(!vehicles.length){
+    el.innerHTML = '<div class="empty">まだ車両が登録されていません。<br>「＋ 車両を追加」から車番を登録してください。</div>'; return;
+  }
+  if(!list.length){ el.innerHTML = `<div class="empty">「${esc(query)}」に一致する車両はありません</div>`; return; }
+  el.innerHTML = list.map(v=>{
+    const href = telHref(v.number);
+    const num = v.number ? (href ? `<a class="num" href="${esc(href)}">📞 ${esc(v.number)}</a>` : `<span class="num">${esc(v.number)}</span>`) : '';
+    const spec = [v.type, v.capacity].filter(Boolean).join(' ・ ');
+    return `<div class="row${v.driver?'':' unset'}">
+      <div style="min-width:0">
+        <div class="plate">${esc(v.carNo||'（車番なし）')}</div>
+        ${spec ? `<div class="spec">${esc(spec)}</div>` : ''}
+        <div class="who"><span class="driver">${esc(v.driver || 'ドライバー未入力')}</span>${num}</div>
+      </div>
+      <div class="row-actions"><button class="btn btn-gray btn-sm" data-edit="${esc(v.id)}">編集</button></div>
+    </div>`;
+  }).join('');
+}
+
+/* ---------- 編集モーダル ---------- */
+function openEditor(id){
+  const v = id ? vehicles.find(x=>x.id===id) : null;
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `<div class="modal-bg" id="bg"><div class="modal" role="dialog" aria-modal="true">
+    <h3>${v ? '車両を編集' : '車両を追加'}</h3>
+    ${v ? `<div class="sub">${esc([v.type, v.capacity].filter(Boolean).join(' ・ '))}</div>` : ''}
+    <label for="f_car">車番</label>
+    <input id="f_car" value="${esc(v?v.carNo:'')}" placeholder="例）富山 130 あ 42">
+    <label for="f_driver">ドライバー名</label>
+    <input id="f_driver" value="${esc(v?v.driver:'')}" placeholder="例）海野">
+    <label for="f_num">番号</label>
+    <input id="f_num" value="${esc(v?v.number:'')}" placeholder="例）090-1234-5678" inputmode="tel">
+    ${v ? '' : `<label for="f_type">車種（任意）</label><input id="f_type" placeholder="例）ユニック">`}
+    <div class="modal-actions">
+      <button class="btn btn-gray" id="cancelBtn">キャンセル</button>
+      <button class="btn btn-primary" id="saveBtn">保存</button>
+    </div>
+    ${v ? `<div style="margin-top:14px; text-align:center"><button class="btn btn-gray btn-sm" id="delBtn">この車両を一覧から削除</button></div><div id="delArea"></div>` : ''}
+  </div></div>`;
+  const close = ()=>{ root.innerHTML=''; };
+  document.getElementById('bg').addEventListener('click', e=>{ if(e.target.id==='bg') close(); });
+  document.getElementById('cancelBtn').onclick = close;
+  document.getElementById('saveBtn').onclick = async ()=>{
+    const carNo = document.getElementById('f_car').value.trim();
+    const driver = document.getElementById('f_driver').value.trim();
+    const number = document.getElementById('f_num').value.trim();
+    if(!carNo){ toast('車番を入力してください'); return; }
+    const data = v
+      ? Object.assign({}, v, {carNo, driver, number})
+      : {carNo, driver, number, type: document.getElementById('f_type').value.trim(), capacity:'',
+         order: vehicles.reduce((m,x)=>Math.max(m, x.order||0), 0) + 1};
+    delete data.id;
+    const id = v ? v.id : ('v' + Date.now() + Math.floor(Math.random()*1000));
+    if(await saveVehicle(id, data)){ close(); toast('保存しました'); }
+  };
+  if(v){
+    document.getElementById('delBtn').onclick = ()=>{
+      document.getElementById('delArea').innerHTML = `<div class="confirm-del">「${esc(v.carNo)}」を一覧から削除します。よろしいですか？
+        <div class="modal-actions"><button class="btn btn-gray btn-sm" id="delNo">やめる</button><button class="btn btn-red btn-sm" id="delYes">削除する</button></div></div>`;
+      document.getElementById('delNo').onclick = ()=>{ document.getElementById('delArea').innerHTML=''; };
+      document.getElementById('delYes').onclick = async ()=>{ if(await deleteVehicle(v.id)){ close(); toast('削除しました'); } };
+    };
+  }
+  setTimeout(()=>document.getElementById(v ? 'f_driver' : 'f_car').focus(), 50);
+}
+
+document.getElementById('q').addEventListener('input', e=>{ query = e.target.value; render(); });
+document.getElementById('filters').addEventListener('click', e=>{
+  if(e.target.tagName!=='BUTTON') return;
+  filter = e.target.dataset.f;
+  document.querySelectorAll('#filters button').forEach(b=>b.classList.toggle('active', b===e.target));
+  render();
+});
+document.getElementById('list').addEventListener('click', e=>{
+  const b = e.target.closest('[data-edit]'); if(b) openEditor(b.dataset.edit);
+});
+document.getElementById('addBtn').onclick = ()=>openEditor(null);
+
+init();
+</script>
