@@ -72,6 +72,11 @@
   .driver{font-size:15px; font-weight:700;}
   .num{font-size:14px; font-variant-numeric:tabular-nums; color:var(--accent-dark); user-select:all; text-decoration:none;}
   .row-actions{display:flex; flex-direction:column; gap:6px;}
+  .move{display:flex; gap:6px;}
+  .move .btn{min-width:40px; padding:8px 10px; font-size:14px;}
+  .move .btn:disabled{opacity:.35; cursor:default;}
+  .btn-on{background:var(--accent-soft); color:var(--accent-dark); border:1.5px solid var(--accent);}
+  .sort-tip{font-size:12.5px; color:var(--accent-dark); background:var(--accent-soft); border-radius:10px; padding:8px 12px; margin-bottom:12px;}
   .empty{text-align:center; color:var(--sub); font-size:13px; padding:34px 12px;}
   .note{font-size:11.5px; color:var(--sub); margin-top:12px; line-height:1.7;}
   label{display:block; font-size:12px; color:var(--sub); margin:12px 0 5px; font-weight:700;}
@@ -119,8 +124,10 @@
   </div>
   <div class="toolbar">
     <div class="count" id="count"></div>
+    <button class="btn btn-gray btn-sm" id="sortBtn">↕ 並び替え</button>
     <button class="btn btn-primary btn-sm" id="addBtn">＋ 車両を追加</button>
   </div>
+  <div class="sort-tip" id="sortTip" hidden>「↑」「↓」で1つずつ、「先頭」でいちばん上へ移動します。終わったら「完了」を押してください。並び順は全員に共有されます。</div>
   <div class="list" id="list"><div class="empty">車両データを読み込んでいます…</div></div>
   <p class="note">各行の「編集」でドライバー名と番号を入力できます。入力内容はこのページを開く全員に共有されます。<br>番号は長押しでコピーできます。</p>
 </main>
@@ -134,6 +141,9 @@ let db = null;
 let vehicles = [];
 let query = '';
 let filter = 'all';
+let sortMode = false;
+let lastList = [];
+let moving = false;
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function norm(s){ return String(s||'').replace(/\s/g,'').toLowerCase(); }
@@ -201,7 +211,7 @@ function render(){
     el.innerHTML = '<div class="empty">まだ車両が登録されていません。<br>「＋ 車両を追加」から車番を登録してください。</div>'; return;
   }
   if(!list.length){ el.innerHTML = `<div class="empty">「${esc(query)}」に一致する車両はありません</div>`; return; }
-  el.innerHTML = list.map(v=>{
+  el.innerHTML = list.map((v,i)=>{
     const href = telHref(v.number);
     const num = v.number ? (href ? `<a class="num" href="${esc(href)}">📞 ${esc(v.number)}</a>` : `<span class="num">${esc(v.number)}</span>`) : '';
     const spec = [v.type, v.capacity].filter(Boolean).join(' ・ ');
@@ -211,9 +221,16 @@ function render(){
         ${spec ? `<div class="spec">${esc(spec)}</div>` : ''}
         <div class="who"><span class="driver">${esc(v.driver || 'ドライバー未入力')}</span>${num}</div>
       </div>
-      <div class="row-actions"><button class="btn btn-gray btn-sm" data-edit="${esc(v.id)}">編集</button></div>
+      <div class="row-actions">${sortMode
+        ? `<div class="move">
+            <button class="btn btn-gray" data-top="${esc(v.id)}" ${i===0?'disabled':''} aria-label="先頭へ">先頭</button>
+            <button class="btn btn-gray" data-up="${esc(v.id)}" ${i===0?'disabled':''} aria-label="上へ">↑</button>
+            <button class="btn btn-gray" data-down="${esc(v.id)}" ${i===list.length-1?'disabled':''} aria-label="下へ">↓</button>
+          </div>`
+        : `<button class="btn btn-gray btn-sm" data-edit="${esc(v.id)}">編集</button>`}</div>
     </div>`;
   }).join('');
+  lastList = list;
 }
 
 /* ---------- 編集モーダル ---------- */
@@ -271,8 +288,58 @@ document.getElementById('filters').addEventListener('click', e=>{
   render();
 });
 document.getElementById('list').addEventListener('click', e=>{
-  const b = e.target.closest('[data-edit]'); if(b) openEditor(b.dataset.edit);
+  const b = e.target.closest('[data-edit]'); if(b){ openEditor(b.dataset.edit); return; }
+  const up = e.target.closest('[data-up]'); if(up){ move(up.dataset.up, -1); return; }
+  const down = e.target.closest('[data-down]'); if(down){ move(down.dataset.down, 1); return; }
+  const top = e.target.closest('[data-top]'); if(top){ moveTop(top.dataset.top); }
 });
+
+/* ---------- 並び替え ---------- */
+// 並び順だけを書き換える（ほかの人が同時に入力した名前・番号を上書きしない）
+async function setOrder(v, order){
+  if(!db){ const data = Object.assign({}, v, {order}); delete data.id; return saveVehicle(v.id, data); }
+  try{ await db.collection('vehicles').doc(v.id).update({order}); return true; }
+  catch(e){ console.error(e); toast('並び順を保存できませんでした'); return false; }
+}
+// 表示中の一覧で隣の車両と順番を入れ替える
+async function move(id, dir){
+  if(moving) return;
+  const i = lastList.findIndex(v=>v.id===id), j = i + dir;
+  if(i<0 || j<0 || j>=lastList.length) return;
+  moving = true;
+  // order が重複・未設定の車両があれば、今の並びで振り直してから入れ替える
+  const all = sorted();
+  const orders = all.map(v=>v.order);
+  if(orders.some(o=>o==null) || new Set(orders).size !== orders.length){
+    for(let k=0;k<all.length;k++){ if(all[k].order !== k+1){ all[k].order = k+1; await setOrder(all[k], k+1); } }
+  }
+  const a = lastList[i], b = lastList[j];
+  const ao = a.order, bo = b.order;
+  a.order = bo; b.order = ao;
+  if(!db) render();
+  await setOrder(a, bo); await setOrder(b, ao);
+  moving = false;
+}
+async function moveTop(id){
+  if(moving) return;
+  const v = vehicles.find(x=>x.id===id); if(!v) return;
+  moving = true;
+  const min = vehicles.reduce((m,x)=>Math.min(m, x.order ?? 9999), 9999);
+  v.order = min - 1;
+  if(!db) render();
+  await setOrder(v, min - 1);
+  moving = false;
+  toast('先頭に移動しました');
+}
+document.getElementById('sortBtn').onclick = ()=>{
+  sortMode = !sortMode;
+  const btn = document.getElementById('sortBtn');
+  btn.textContent = sortMode ? '✓ 完了' : '↕ 並び替え';
+  btn.classList.toggle('btn-on', sortMode); btn.classList.toggle('btn-gray', !sortMode);
+  document.getElementById('sortTip').hidden = !sortMode;
+  document.getElementById('addBtn').hidden = sortMode;
+  render();
+};
 document.getElementById('addBtn').onclick = ()=>openEditor(null);
 
 init();
