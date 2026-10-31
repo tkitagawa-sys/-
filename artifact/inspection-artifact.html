@@ -40,17 +40,20 @@ const newId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const p2 = n => String(n).padStart(2, "0");
 
 /* ---------- 保存まわり（Artifactの共有データベース） ---------- */
-// teams/{id}    : { name, checker, notes, order }
-// vehicles/{id} : { teamId, plate, driver, expiry, memo, sold, items, order }
+// vehicles/{id}  : { type, plate, driver, expiry, memo, sold, items, order }
+// settings/main  : { notes }
 
 const LOCAL_KEY = "vehicle-inspection-local-v1";
 function loadLocal() {
   try {
     const d = JSON.parse(localStorage.getItem(LOCAL_KEY) || "null");
-    if (d && Array.isArray(d.teams) && Array.isArray(d.vehicles)) return d;
+    if (d && Array.isArray(d.vehicles)) return {
+      notes: d.notes || "",
+      vehicles: d.vehicles
+    };
   } catch (e) {/* 使えない環境では空で始める */}
   return {
-    teams: [],
+    notes: "",
     vehicles: []
   };
 }
@@ -59,6 +62,31 @@ function saveLocal(data) {
     localStorage.setItem(LOCAL_KEY, JSON.stringify(data));
   } catch (e) {/* 保存できなくても画面は動かす */}
 }
+
+// 車種（key は保存用、label は表示用）
+const VEHICLE_TYPES = [{
+  key: "unic",
+  label: "ユニック車",
+  color: "#f59e0b"
+}, {
+  key: "wing",
+  label: "ウィング車",
+  color: "#38bdf8"
+}, {
+  key: "hook",
+  label: "フックロール車",
+  color: "#a78bfa"
+}, {
+  key: "other",
+  label: "その他（役員車・営業車など）",
+  color: "#94a3b8"
+}];
+const UNASSIGNED = {
+  key: "",
+  label: "未分類",
+  color: "#ff6b6b"
+};
+const typeOf = key => VEHICLE_TYPES.find(t => t.key === key) || UNASSIGNED;
 const byOrder = (a, b) => (a.order ?? 0) - (b.order ?? 0);
 const stripId = ({
   id,
@@ -169,13 +197,13 @@ function csvText(data, year) {
     const s = val === undefined || val === null ? "" : String(val);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const header = ["チーム", "車番", "担当者", "車検有効期限", "年", "月", "内容", "実施日", "業者・請求書", "状態"];
+  const header = ["車種", "車番", "担当者", "車検有効期限", "年", "月", "内容", "実施日", "業者・請求書", "状態"];
   const rows = [];
-  data.teams.forEach(t => {
-    data.vehicles.filter(v => v.teamId === t.id).forEach(v => {
+  [...VEHICLE_TYPES, UNASSIGNED].forEach(t => {
+    data.vehicles.filter(v => typeOf(v.type).key === t.key).forEach(v => {
       const items = v.items.filter(i => i.year === year).sort((a, b) => a.month - b.month);
-      if (items.length === 0) rows.push([t.name, v.plate, v.driver, v.expiry, year, "", "", "", "", v.sold ? "売却" : ""]);
-      items.forEach(i => rows.push([t.name, v.plate, v.driver, v.expiry, i.year, i.month, i.content, i.date, i.shop, STATUS_LABEL[itemStatus(i)]]));
+      if (items.length === 0) rows.push([t.label, v.plate, v.driver, v.expiry, year, "", "", "", "", v.sold ? "売却" : ""]);
+      items.forEach(i => rows.push([t.label, v.plate, v.driver, v.expiry, i.year, i.month, i.content, i.date, i.shop, STATUS_LABEL[itemStatus(i)]]));
     });
   });
   const csv = [header, ...rows].map(r => r.map(esc).join(",")).join("\r\n");
@@ -523,7 +551,6 @@ function ItemEditor({
 
 function VehicleEditor({
   vehicle,
-  teams,
   year,
   onSave,
   onDelete,
@@ -590,17 +617,19 @@ function VehicleEditor({
     }),
     style: inputStyle
   })), /*#__PURE__*/React.createElement(Field, {
-    label: "チーム"
+    label: "車種"
   }, /*#__PURE__*/React.createElement("select", {
-    value: v.teamId,
+    value: v.type || "",
     onChange: e => set({
-      teamId: e.target.value
+      type: e.target.value
     }),
     style: inputStyle
-  }, teams.map(t => /*#__PURE__*/React.createElement("option", {
-    key: t.id,
-    value: t.id
-  }, t.name))))), /*#__PURE__*/React.createElement(Field, {
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "未分類"), VEHICLE_TYPES.map(t => /*#__PURE__*/React.createElement("option", {
+    key: t.key,
+    value: t.key
+  }, t.label))))), /*#__PURE__*/React.createElement(Field, {
     label: "車検有効期限"
   }, /*#__PURE__*/React.createElement("input", {
     type: "date",
@@ -772,13 +801,15 @@ function SummaryCards({
   }));
 }
 
-/* ---------- 一覧表 ---------- */
+/* ---------- 一覧表（車種ごとに見出し行） ---------- */
 
 function InspectionTable({
-  vehicles,
+  groups,
   year,
+  canWrite,
   onCell,
-  onVehicle
+  onVehicle,
+  onType
 }) {
   const now = new Date();
   const curMonth = now.getFullYear() === year ? now.getMonth() + 1 : 0;
@@ -790,14 +821,18 @@ function InspectionTable({
     borderBottom: `1px solid ${C.line}`,
     background: C.panel
   };
-  if (vehicles.length === 0) {
+  const total = groups.reduce((n, g) => n + g.vehicles.length, 0);
+  if (total === 0) {
     return /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 13,
         color: C.sub,
-        padding: 20
+        padding: 20,
+        background: C.panel,
+        borderRadius: 12,
+        border: `1px solid ${C.line}`
       }
-    }, "このチームには車輌が登録されていません");
+    }, "該当する車輌がありません");
   }
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -809,7 +844,7 @@ function InspectionTable({
     style: {
       borderCollapse: "separate",
       borderSpacing: 0,
-      minWidth: 1180,
+      minWidth: 1200,
       width: "100%",
       fontFamily: FONT
     }
@@ -820,7 +855,7 @@ function InspectionTable({
       position: "sticky",
       left: 0,
       zIndex: 2,
-      minWidth: 150,
+      minWidth: 170,
       paddingLeft: 12
     }
   }, "車番 / 担当 / 車検期限"), MONTHS.map(m => /*#__PURE__*/React.createElement("th", {
@@ -831,7 +866,33 @@ function InspectionTable({
       color: m === curMonth ? C.now : C.dim,
       fontWeight: m === curMonth ? 700 : 400
     }
-  }, m, "月")))), /*#__PURE__*/React.createElement("tbody", null, vehicles.map(v => {
+  }, m, "月")))), /*#__PURE__*/React.createElement("tbody", null, groups.filter(g => g.vehicles.length > 0).map(g => /*#__PURE__*/React.createElement(React.Fragment, {
+    key: g.type.key || "none"
+  }, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    colSpan: 13,
+    style: {
+      background: `${g.type.color}1f`,
+      borderBottom: `1px solid ${C.line}`,
+      padding: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "sticky",
+      left: 0,
+      display: "inline-block",
+      padding: "8px 12px",
+      fontSize: 13,
+      fontWeight: 700,
+      color: g.type.color
+    }
+  }, g.type.label, /*#__PURE__*/React.createElement("span", {
+    style: {
+      marginLeft: 8,
+      fontSize: 11,
+      color: C.sub,
+      fontWeight: 400
+    }
+  }, g.vehicles.length, "台")))), g.vehicles.map(v => {
     const exp = expiryInfo(v);
     return /*#__PURE__*/React.createElement("tr", {
       key: v.id,
@@ -845,10 +906,11 @@ function InspectionTable({
         left: 0,
         zIndex: 1,
         background: C.panel,
-        cursor: "pointer",
+        cursor: canWrite ? "pointer" : "default",
         borderBottom: `1px solid ${C.line}`,
         borderRight: `1px solid ${C.line}`,
-        padding: "8px 8px 8px 12px",
+        borderLeft: `3px solid ${g.type.color}`,
+        padding: "8px 8px 8px 10px",
         verticalAlign: "top"
       }
     }, /*#__PURE__*/React.createElement("div", {
@@ -877,9 +939,25 @@ function InspectionTable({
         color: "#6a6f78",
         marginTop: 3,
         whiteSpace: "pre-line",
-        maxWidth: 160
+        maxWidth: 170
       }
-    }, "📝 ", v.memo)), MONTHS.map(m => {
+    }, "📝 ", v.memo), !g.type.key && canWrite && /*#__PURE__*/React.createElement("select", {
+      value: "",
+      onClick: e => e.stopPropagation(),
+      onChange: e => onType(v, e.target.value),
+      style: {
+        ...inputStyle,
+        marginTop: 6,
+        padding: "4px 6px",
+        fontSize: 11,
+        borderColor: `${C.overdue}88`
+      }
+    }, /*#__PURE__*/React.createElement("option", {
+      value: ""
+    }, "車種を選ぶ…"), VEHICLE_TYPES.map(t => /*#__PURE__*/React.createElement("option", {
+      key: t.key,
+      value: t.key
+    }, t.label)))), MONTHS.map(m => {
       const items = v.items.filter(i => i.year === year && i.month === m);
       return /*#__PURE__*/React.createElement("td", {
         key: m,
@@ -889,7 +967,7 @@ function InspectionTable({
           borderRight: `1px solid ${C.line}22`,
           padding: 4,
           verticalAlign: "top",
-          cursor: "pointer",
+          cursor: canWrite ? "pointer" : "default",
           background: m === curMonth ? `${C.now}0d` : "transparent"
         }
       }, items.map(i => /*#__PURE__*/React.createElement(Chip, {
@@ -897,7 +975,7 @@ function InspectionTable({
         item: i
       })));
     }));
-  }))));
+  }))))));
 }
 
 /* ---------- 確認ダイアログ（ページ内） ---------- */
@@ -942,59 +1020,16 @@ function ConfirmDialog({
     }
   }, okLabel)));
 }
-function TeamDialog({
-  onSave,
-  onClose
-}) {
-  const [name, setName] = useState("");
-  const [checker, setChecker] = useState("");
-  return /*#__PURE__*/React.createElement(Modal, {
-    title: "チームを追加",
-    onClose: onClose
-  }, /*#__PURE__*/React.createElement(Field, {
-    label: "チーム名"
-  }, /*#__PURE__*/React.createElement("input", {
-    value: name,
-    onChange: e => setName(e.target.value),
-    placeholder: "F山田",
-    style: inputStyle,
-    autoFocus: true
-  })), /*#__PURE__*/React.createElement(Field, {
-    label: "チェック担当（任意）"
-  }, /*#__PURE__*/React.createElement("input", {
-    value: checker,
-    onChange: e => setChecker(e.target.value),
-    style: inputStyle
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 8
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    onClick: onClose,
-    style: {
-      ...ghostBtn,
-      flex: 1
-    }
-  }, "キャンセル"), /*#__PURE__*/React.createElement("button", {
-    disabled: !name.trim(),
-    onClick: () => onSave(name.trim(), checker.trim()),
-    style: {
-      ...btn(name.trim() ? "#2a6ef5" : C.line),
-      flex: 2
-    }
-  }, "追加")));
-}
 
 /* ---------- データ層：共有DB（使えないときは端末内保存） ---------- */
 
 function useStore() {
   const [db, setDb] = useState(undefined); // undefined=確認中 / null=使えない
-  const [teams, setTeams] = useState([]);
   const [vehicles, setVehicles] = useState([]);
+  const [notes, setNotes] = useState("");
   const [loaded, setLoaded] = useState({
-    teams: false,
-    vehicles: false
+    vehicles: false,
+    settings: false
   });
   const [slow, setSlow] = useState(false);
   const [canWrite, setCanWrite] = useState(true);
@@ -1020,11 +1055,11 @@ function useStore() {
   useEffect(() => {
     if (db !== null) return;
     const d = loadLocal();
-    setTeams(d.teams.sort(byOrder));
     setVehicles(d.vehicles.sort(byOrder));
+    setNotes(d.notes);
     setLoaded({
-      teams: true,
-      vehicles: true
+      vehicles: true,
+      settings: true
     });
   }, [db]);
 
@@ -1036,12 +1071,8 @@ function useStore() {
       clearTimeout(timer);
       setError(e && e.code === "revoked" ? "データにアクセスできなくなりました" : "データを読み込めませんでした");
     };
-    const listen = (name, setter) => db.collection(name).onSnapshot(snap => {
-      setter(snap.docs.map(d => ({
-        id: d.id,
-        ...d.data()
-      })).sort(byOrder));
-      if (!snap.metadata.fromCache) {
+    const settle = (name, meta) => {
+      if (!meta.fromCache) {
         clearTimeout(timer);
         setSlow(false);
       }
@@ -1049,9 +1080,18 @@ function useStore() {
         ...l,
         [name]: true
       }));
+    };
+    const u1 = db.collection("vehicles").onSnapshot(snap => {
+      setVehicles(snap.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      })).sort(byOrder));
+      settle("vehicles", snap.metadata);
     }, fail);
-    const u1 = listen("teams", setTeams);
-    const u2 = listen("vehicles", setVehicles);
+    const u2 = db.doc("settings/main").onSnapshot(snap => {
+      setNotes(snap.exists ? snap.data().notes || "" : "");
+      settle("settings", snap.metadata);
+    }, fail);
     return () => {
       clearTimeout(timer);
       u1();
@@ -1064,24 +1104,24 @@ function useStore() {
       setError("このページを編集する権限がありません（閲覧のみ）");
     } else if (e && e.code === "quota_exceeded") setError("保存容量の上限に達しました。不要な車輌を削除してください");else setError("保存できませんでした。通信状態を確認してもう一度お試しください");
   };
-  const localWrite = (nextTeams, nextVehicles) => {
-    setTeams(nextTeams);
+  const localWrite = (nextVehicles, nextNotes) => {
     setVehicles(nextVehicles);
+    setNotes(nextNotes);
     saveLocal({
-      teams: nextTeams,
-      vehicles: nextVehicles
+      vehicles: nextVehicles,
+      notes: nextNotes
     });
   };
   const api = {
     async saveVehicle(v) {
-      const order = v.order ?? Date.now();
       const doc = {
         ...v,
-        order
+        order: v.order ?? Date.now()
       };
+      delete doc.teamId;
       if (!db) {
         const exists = vehicles.some(x => x.id === v.id);
-        return localWrite(teams, exists ? vehicles.map(x => x.id === v.id ? doc : x) : [...vehicles, doc]);
+        return localWrite(exists ? vehicles.map(x => x.id === v.id ? doc : x) : [...vehicles, doc], notes);
       }
       try {
         await db.collection("vehicles").doc(v.id).set(stripId(doc));
@@ -1090,41 +1130,37 @@ function useStore() {
       }
     },
     async deleteVehicle(id) {
-      if (!db) return localWrite(teams, vehicles.filter(v => v.id !== id));
+      if (!db) return localWrite(vehicles.filter(v => v.id !== id), notes);
       try {
         await db.collection("vehicles").doc(id).delete();
       } catch (e) {
         writeFail(e);
       }
     },
-    async saveTeam(t) {
-      const doc = {
-        ...t,
-        order: t.order ?? Date.now()
-      };
-      if (!db) {
-        const exists = teams.some(x => x.id === t.id);
-        return localWrite(exists ? teams.map(x => x.id === t.id ? doc : x) : [...teams, doc], vehicles);
-      }
+    async saveNotes(text) {
+      if (!db) return localWrite(vehicles, text);
       try {
-        await db.collection("teams").doc(t.id).set(stripId(doc));
+        await db.doc("settings/main").set({
+          notes: text
+        });
       } catch (e) {
         writeFail(e);
       }
     },
     async restore(d) {
-      if (!db) return localWrite(d.teams, d.vehicles);
+      if (!db) return localWrite(d.vehicles, d.notes || "");
       try {
-        for (const t of teams) if (!d.teams.some(x => x.id === t.id)) await db.collection("teams").doc(t.id).delete();
         for (const v of vehicles) if (!d.vehicles.some(x => x.id === v.id)) await db.collection("vehicles").doc(v.id).delete();
-        for (const t of d.teams) await db.collection("teams").doc(t.id).set(stripId(t));
         for (const v of d.vehicles) await db.collection("vehicles").doc(v.id).set(stripId(v));
+        await db.doc("settings/main").set({
+          notes: d.notes || ""
+        });
       } catch (e) {
         writeFail(e);
       }
     }
   };
-  const ready = db !== undefined && loaded.teams && loaded.vehicles;
+  const ready = db !== undefined && loaded.vehicles && loaded.settings;
   return {
     mode: db ? "shared" : db === null ? "local" : "pending",
     ready,
@@ -1132,8 +1168,8 @@ function useStore() {
     error,
     setError,
     canWrite,
-    teams,
     vehicles,
+    notes,
     api
   };
 }
@@ -1143,28 +1179,34 @@ function useStore() {
 function App() {
   const store = useStore();
   const {
-    teams,
     vehicles: allVehicles,
+    notes,
     api,
     canWrite
   } = store;
   const data = {
-    teams,
-    vehicles: allVehicles
+    vehicles: allVehicles,
+    notes
   };
-  const [teamId, setTeamId] = useState(null);
+  const [filter, setFilter] = useState("all"); // all / 車種key / "none"
+  const [query, setQuery] = useState("");
+  const [showSold, setShowSold] = useState(false);
   const [year, setYear] = useState(new Date().getFullYear());
   const [cellEdit, setCellEdit] = useState(null); // { vehicle, month }
   const [vehicleEdit, setVehicleEdit] = useState(null); // vehicle
   const [confirmBox, setConfirmBox] = useState(null); // { message, okLabel, danger, onOk }
-  const [teamDialog, setTeamDialog] = useState(false);
   const [notice, setNotice] = useState("");
   const [notesDraft, setNotesDraft] = useState(null);
-  const team = teams.find(t => t.id === teamId) || teams[0];
-  const vehicles = team ? allVehicles.filter(v => v.teamId === team.id) : [];
-  useEffect(() => {
-    setNotesDraft(null);
-  }, [team && team.id]);
+  const q = query.trim().replace(/\s+/g, "");
+  const visible = allVehicles.filter(v => (showSold || !v.sold) && (!q || `${v.plate}${v.driver}${v.memo}`.replace(/\s+/g, "").includes(q)));
+  const allTypes = [...VEHICLE_TYPES, UNASSIGNED];
+  const groups = allTypes.filter(t => filter === "all" || (filter === "none" ? !t.key : t.key === filter)).map(t => ({
+    type: t,
+    vehicles: visible.filter(v => typeOf(v.type).key === t.key)
+  }));
+  const countOf = key => allVehicles.filter(v => !v.sold && typeOf(v.type).key === key).length;
+  const overdueOf = key => allVehicles.filter(v => !v.sold && (key === null || typeOf(v.type).key === key)).flatMap(v => v.items.filter(i => i.year === year)).filter(i => itemStatus(i) === "overdue").length;
+  const unassigned = countOf("");
   const flash = msg => {
     setNotice(msg);
     setTimeout(() => setNotice(""), 2500);
@@ -1186,23 +1228,8 @@ function App() {
     });
   };
   const commitNotes = () => {
-    if (notesDraft === null || !team || notesDraft === (team.notes || "")) return;
-    api.saveTeam({
-      ...team,
-      notes: notesDraft
-    });
-  };
-  const addTeam = (name, checker) => {
-    const t = {
-      id: newId(),
-      name,
-      checker,
-      notes: "",
-      order: Date.now()
-    };
-    api.saveTeam(t);
-    setTeamId(t.id);
-    setTeamDialog(false);
+    if (notesDraft === null || notesDraft === notes) return;
+    api.saveNotes(notesDraft);
   };
   const exportCSV = async () => {
     try {
@@ -1228,14 +1255,13 @@ function App() {
     reader.onload = () => {
       try {
         const d = JSON.parse(reader.result);
-        if (!Array.isArray(d.teams) || !Array.isArray(d.vehicles)) throw new Error();
+        if (!Array.isArray(d.vehicles)) throw new Error();
         setConfirmBox({
-          message: `現在のデータを、バックアップの内容（${d.teams.length}チーム・${d.vehicles.length}台）で置き換えます。よろしいですか？`,
+          message: `現在のデータを、バックアップの内容（${d.vehicles.length}台）で置き換えます。よろしいですか？`,
           okLabel: "置き換える",
           danger: true,
           onOk: () => {
             api.restore(d);
-            setTeamId(null);
             flash("バックアップから復元しました");
           }
         });
@@ -1261,6 +1287,38 @@ function App() {
       }
     }, store.error || (store.slow ? "データに接続できません。通信状態を確認してください…" : "読み込み中…"));
   }
+  const chip = (key, label, color, count, overdue) => {
+    const active = filter === key;
+    return /*#__PURE__*/React.createElement("button", {
+      key: key,
+      onClick: () => setFilter(key),
+      style: {
+        padding: "8px 14px",
+        borderRadius: 20,
+        cursor: "pointer",
+        fontFamily: FONT,
+        fontSize: 13,
+        border: `1px solid ${active ? color : C.line}`,
+        background: active ? `${color}2a` : C.panel,
+        color: active ? C.text : C.sub,
+        fontWeight: active ? 700 : 400
+      }
+    }, label, /*#__PURE__*/React.createElement("span", {
+      style: {
+        marginLeft: 6,
+        fontFamily: MONO,
+        fontSize: 11,
+        color: C.sub
+      }
+    }, count), overdue > 0 && /*#__PURE__*/React.createElement("span", {
+      style: {
+        marginLeft: 6,
+        color: C.overdue,
+        fontFamily: MONO,
+        fontSize: 11
+      }
+    }, "●", overdue));
+  };
   return /*#__PURE__*/React.createElement("div", {
     style: {
       minHeight: "100vh",
@@ -1354,56 +1412,24 @@ function App() {
   }, "×")), /*#__PURE__*/React.createElement(SummaryCards, {
     vehicles: allVehicles,
     year: year
-  }), /*#__PURE__*/React.createElement("div", {
+  }), unassigned > 0 && canWrite && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: `${C.now}14`,
+      border: `1px solid ${C.now}55`,
+      color: C.text,
+      borderRadius: 10,
+      padding: "10px 14px",
+      fontSize: 13,
+      marginBottom: 14
+    }
+  }, "車種が未分類の車輌が", unassigned, "台あります。一覧の「未分類」で車種を選んでください。"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 6,
       flexWrap: "wrap",
-      marginBottom: 14
+      marginBottom: 12
     }
-  }, teams.map(t => {
-    const active = team && t.id === team.id;
-    const overdue = allVehicles.filter(v => v.teamId === t.id && !v.sold).flatMap(v => v.items.filter(i => i.year === year)).filter(i => itemStatus(i) === "overdue").length;
-    return /*#__PURE__*/React.createElement("button", {
-      key: t.id,
-      onClick: () => setTeamId(t.id),
-      style: {
-        padding: "8px 14px",
-        borderRadius: 20,
-        cursor: "pointer",
-        fontFamily: FONT,
-        fontSize: 13,
-        border: `1px solid ${active ? C.shaken : C.line}`,
-        background: active ? `${C.shaken}33` : C.panel,
-        color: active ? C.text : C.sub,
-        fontWeight: active ? 700 : 400
-      }
-    }, t.name, overdue > 0 && /*#__PURE__*/React.createElement("span", {
-      style: {
-        marginLeft: 6,
-        color: C.overdue,
-        fontFamily: MONO,
-        fontSize: 11
-      }
-    }, "●", overdue));
-  }), canWrite && /*#__PURE__*/React.createElement("button", {
-    onClick: () => setTeamDialog(true),
-    style: {
-      ...ghostBtn,
-      borderRadius: 20,
-      padding: "8px 14px"
-    }
-  }, "＋ チーム")), !team && /*#__PURE__*/React.createElement("div", {
-    style: {
-      background: C.panel,
-      border: `1px solid ${C.line}`,
-      borderRadius: 16,
-      padding: 24,
-      color: C.sub,
-      fontSize: 14,
-      lineHeight: 1.8
-    }
-  }, "まだデータがありません。「＋ チーム」からチームを作るか、下の「バックアップから復元」でデータを読み込んでください。"), team && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+  }, chip("all", "すべて", C.text, allVehicles.filter(v => !v.sold).length, overdueOf(null)), VEHICLE_TYPES.map(t => chip(t.key, t.label.replace(/（.*）/, ""), t.color, countOf(t.key), overdueOf(t.key))), unassigned > 0 && chip("none", "未分類", UNASSIGNED.color, unassigned, overdueOf(""))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       justifyContent: "space-between",
@@ -1414,28 +1440,63 @@ function App() {
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 12,
-      color: C.sub
+      display: "flex",
+      gap: 10,
+      alignItems: "center",
+      flexWrap: "wrap"
     }
-  }, vehicles.length, "台", team.checker ? ` ・ チェック担当：${team.checker}` : "", canWrite ? " ・ マスをタップで点検を入力 / 車番をタップで車輌編集" : ""), canWrite && /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("input", {
+    value: query,
+    onChange: e => setQuery(e.target.value),
+    placeholder: "🔍 車番・担当者で検索",
+    style: {
+      ...inputStyle,
+      width: 220,
+      padding: "8px 10px",
+      fontSize: 13
+    }
+  }), /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: 12,
+      color: C.sub,
+      cursor: "pointer"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: showSold,
+    onChange: e => setShowSold(e.target.checked)
+  }), "売却済みも表示"), canWrite && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: C.dim
+    }
+  }, "マスをタップで点検を入力 / 車番をタップで車輌編集")), canWrite && /*#__PURE__*/React.createElement("button", {
     onClick: () => setVehicleEdit({
       plate: "",
       driver: "",
       expiry: "",
       memo: "",
       sold: false,
-      teamId: team.id,
-      items: []
+      items: [],
+      type: filter !== "all" && filter !== "none" ? filter : ""
     }),
     style: btn("#2a6ef5")
   }, "＋ 車輌を追加")), /*#__PURE__*/React.createElement(InspectionTable, {
-    vehicles: vehicles,
+    groups: groups,
     year: year,
+    canWrite: canWrite,
     onCell: (v, m) => canWrite && setCellEdit({
       vehicle: v,
       month: m
     }),
-    onVehicle: v => canWrite && setVehicleEdit(v)
+    onVehicle: v => canWrite && setVehicleEdit(v),
+    onType: (v, type) => type && api.saveVehicle({
+      ...v,
+      type
+    })
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -1470,9 +1531,9 @@ function App() {
       letterSpacing: 2,
       marginBottom: 10
     }
-  }, team.name, " の備考"), /*#__PURE__*/React.createElement("textarea", {
-    value: notesDraft ?? (team.notes || ""),
-    rows: 3,
+  }, "備考"), /*#__PURE__*/React.createElement("textarea", {
+    value: notesDraft ?? notes,
+    rows: 4,
     readOnly: !canWrite,
     onChange: e => setNotesDraft(e.target.value),
     onBlur: commitNotes,
@@ -1482,7 +1543,7 @@ function App() {
       background: C.bg,
       resize: "vertical"
     }
-  }))), /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("div", {
     style: {
       background: C.panel,
       border: `1px solid ${C.line}`,
@@ -1543,14 +1604,10 @@ function App() {
     onClose: () => setCellEdit(null)
   }), vehicleEdit && /*#__PURE__*/React.createElement(VehicleEditor, {
     vehicle: vehicleEdit,
-    teams: teams,
     year: year,
     onSave: saveVehicle,
     onDelete: deleteVehicle,
     onClose: () => setVehicleEdit(null)
-  }), teamDialog && /*#__PURE__*/React.createElement(TeamDialog, {
-    onSave: addTeam,
-    onClose: () => setTeamDialog(false)
   }), confirmBox && /*#__PURE__*/React.createElement(ConfirmDialog, {
     ...confirmBox,
     onClose: () => setConfirmBox(null)
