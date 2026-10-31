@@ -19,7 +19,8 @@ const {
 const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const CONTENT_PRESETS = ["3ヶ月", "車検", "ﾕﾆｯｸ", "クレーン点検", "新車1年点検", "年次検査", "セルフ点検"];
 const SHOP_PRESETS = ["三愛自動車", "日野自動車", "いすゞ", "中田自動車", "富山地鉄", "北陸車検", "トヨタ"];
-const EXPIRY_WARN_DAYS = 45;
+const EXPIRY_WARN_MONTHS = 2; // 車検期限の何ヶ月前から知らせるか
+
 const FONT = "'Noto Sans JP', sans-serif";
 const MONO = "'DM Mono', monospace";
 const C = {
@@ -139,7 +140,10 @@ const STATUS_LABEL = {
 function expiryInfo(v) {
   const d = daysUntil(v.expiry);
   if (d === null || v.sold) return null;
-  if (d > EXPIRY_WARN_DAYS) return null;
+  const [ey, em, ed] = v.expiry.split("-").map(Number);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (today < new Date(ey, em - 1 - EXPIRY_WARN_MONTHS, ed)) return null;
   // 期限の約3ヶ月前以降に車検を実施済みなら、期限日の更新漏れとして扱う
   const renewed = v.items.some(i => i.done && i.content.includes("車検") && i.year * 12 + i.month >= Number(v.expiry.slice(0, 4)) * 12 + Number(v.expiry.slice(5, 7)) - 3);
   if (renewed) return {
@@ -151,11 +155,10 @@ function expiryInfo(v) {
     color: C.overdue,
     text: `期限切れ ${-d}日`
   };
-  if (d <= EXPIRY_WARN_DAYS) return {
+  return {
     color: C.now,
     text: `あと${d}日`
   };
-  return null;
 }
 
 // 車検月を基準に、3ヶ月点検を3・6・9ヶ月ずらしで配置
@@ -802,7 +805,7 @@ function SummaryCards({
     color: overdue.length ? C.overdue : C.done,
     sub: "実施日の入力漏れも含む"
   }), /*#__PURE__*/React.createElement(Card, {
-    label: `車検期限 ${EXPIRY_WARN_DAYS}日以内・切れ`,
+    label: `車検期限 ${EXPIRY_WARN_MONTHS}ヶ月以内・切れ`,
     value: expiring.length,
     color: expiring.length ? C.overdue : C.done,
     sub: `車検済で期限日の更新待ち ${needUpdate.length}台`
@@ -1199,6 +1202,200 @@ const isUnicVehicle = v => v.type === "unic" || v.items.some(i => UNIC_RE.test(i
 // その年にユニック（クレーン）点検を実施済みか
 const unicDoneIn = (v, year) => v.items.some(i => i.year === year && i.done && UNIC_RE.test(i.content));
 
+/* ---------- 期限切れ・車検間近の欄 ---------- */
+
+const THREE_MONTH_RE = /[3３三]\s*[ヶヵかカケ]?\s*月/;
+const inspectionKind = content => UNIC_RE.test(content) ? "クレーン点検" : THREE_MONTH_RE.test(content) ? "3ヶ月点検" : null;
+function monthsLate(item) {
+  const now = new Date();
+  return now.getFullYear() * 12 + now.getMonth() + 1 - (item.year * 12 + item.month);
+}
+function AlertPanel({
+  title,
+  color,
+  count,
+  empty,
+  children
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.panel,
+      border: `1px solid ${C.line}`,
+      borderTop: `4px solid ${color}`,
+      borderRadius: 12,
+      padding: 16,
+      display: "flex",
+      flexDirection: "column",
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline",
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 15,
+      fontWeight: 700,
+      color: C.text
+    }
+  }, title), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 20,
+      fontWeight: 700,
+      color: count ? color : C.done,
+      fontFamily: MONO
+    }
+  }, count, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      marginLeft: 2
+    }
+  }, "台"))), count === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: C.sub,
+      padding: "8px 0"
+    }
+  }, empty) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 6,
+      maxHeight: 320,
+      overflowY: "auto"
+    }
+  }, children));
+}
+function AlertRow({
+  v,
+  onClick,
+  right,
+  children
+}) {
+  const t = typeOf(v.type);
+  return /*#__PURE__*/React.createElement("div", {
+    onClick: onClick,
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: 10,
+      cursor: onClick ? "pointer" : "default",
+      background: C.bg,
+      borderRadius: 8,
+      padding: "8px 10px",
+      borderLeft: `3px solid ${t.color}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      fontWeight: 700,
+      color: C.text
+    }
+  }, v.plate, /*#__PURE__*/React.createElement("span", {
+    style: {
+      marginLeft: 8,
+      fontWeight: 400,
+      color: C.sub,
+      fontSize: 12
+    }
+  }, v.driver || "—"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      marginLeft: 8,
+      fontSize: 10,
+      color: t.color,
+      border: `1px solid ${t.color}66`,
+      borderRadius: 4,
+      padding: "0 4px"
+    }
+  }, t.label)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.sub,
+      marginTop: 2
+    }
+  }, children)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flexShrink: 0,
+      textAlign: "right"
+    }
+  }, right));
+}
+function AlertPanels({
+  vehicles,
+  onItem,
+  onVehicle
+}) {
+  const active = vehicles.filter(v => !v.sold);
+
+  // 3ヶ月点検・クレーン点検：予定月を過ぎても実施済みになっていないもの（車輌ごとにまとめる）
+  const overdue = active.map(v => ({
+    v,
+    items: v.items.filter(i => itemStatus(i) === "overdue" && inspectionKind(i.content)).sort((a, b) => a.year * 12 + a.month - (b.year * 12 + b.month))
+  })).filter(x => x.items.length > 0).sort((a, b) => monthsLate(b.items[0]) - monthsLate(a.items[0]));
+
+  // 車検：期限の2ヶ月前から（期限切れ含む）。車検済で期限日の更新待ちは後ろに
+  const shaken = active.map(v => ({
+    v,
+    exp: expiryInfo(v),
+    d: daysUntil(v.expiry)
+  })).filter(x => x.exp).sort((a, b) => a.exp.renewed - b.exp.renewed || a.d - b.d);
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))",
+      gap: 12,
+      marginBottom: 20
+    }
+  }, /*#__PURE__*/React.createElement(AlertPanel, {
+    title: "3ヶ月点検・クレーン点検 期限切れ",
+    color: C.overdue,
+    count: overdue.length,
+    empty: "期限を過ぎた点検はありません"
+  }, overdue.map(({
+    v,
+    items
+  }) => /*#__PURE__*/React.createElement(AlertRow, {
+    key: v.id,
+    v: v,
+    onClick: () => onItem(v, items[0]),
+    right: /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        fontWeight: 700,
+        color: C.overdue
+      }
+    }, monthsLate(items[0]), "ヶ月遅れ")
+  }, items.map(i => `${inspectionKind(i.content)}（${i.year !== new Date().getFullYear() ? i.year + "年" : ""}${i.month}月）`).join("・")))), /*#__PURE__*/React.createElement(AlertPanel, {
+    title: `車検 ${EXPIRY_WARN_MONTHS}ヶ月前のお知らせ`,
+    color: C.shaken,
+    count: shaken.length,
+    empty: `${EXPIRY_WARN_MONTHS}ヶ月以内に車検期限を迎える車輌はありません`
+  }, shaken.map(({
+    v,
+    exp,
+    d
+  }) => /*#__PURE__*/React.createElement(AlertRow, {
+    key: v.id,
+    v: v,
+    onClick: () => onVehicle(v),
+    right: /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        fontWeight: 700,
+        color: exp.color
+      }
+    }, exp.renewed ? "期限日を更新" : d < 0 ? `${-d}日超過` : `あと${d}日`)
+  }, "車検期限 ", formatFullDate(v.expiry), exp.renewed ? "（車検済）" : ""))));
+}
+
 /* ---------- メイン ---------- */
 
 function App() {
@@ -1439,6 +1636,17 @@ function App() {
   }, "×")), /*#__PURE__*/React.createElement(SummaryCards, {
     vehicles: allVehicles,
     year: year
+  }), /*#__PURE__*/React.createElement(AlertPanels, {
+    vehicles: allVehicles,
+    onItem: (v, item) => {
+      if (!canWrite) return;
+      setYear(item.year);
+      setCellEdit({
+        vehicle: v,
+        month: item.month
+      });
+    },
+    onVehicle: v => canWrite && setVehicleEdit(v)
   }), unassigned > 0 && canWrite && /*#__PURE__*/React.createElement("div", {
     style: {
       background: `${C.now}14`,
