@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>運搬売上・断り分析レポート 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Zen+Kaku+Gothic+New:wght@700;900&display=swap" rel="stylesheet">
+<style>
+/* layout: single reading column (max 980px), summary tiles → charts → tables → proposals */
+:root{
+  color-scheme:light;
+  --bg:#f5f6f4; --card:#ffffff; --ink:#15191c; --sub:#545b60; --line:#dfe3e0;
+  --accent:#1c5cab; --s1:#2a78d6; --s2:#eb6834; --crit:#d03b3b; --soft:#eef3fa;
+  --display:"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic",sans-serif;
+  --body:"Noto Sans JP","Hiragino Sans","Yu Gothic",sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark; --bg:#141617; --card:#1d2022; --ink:#eef0ee; --sub:#b4bab8; --line:#33383a;
+  --accent:#6da7ec; --s1:#3987e5; --s2:#d95926; --crit:#e66767; --soft:#1f2a36;}}
+:root[data-theme="dark"]{
+  color-scheme:dark; --bg:#141617; --card:#1d2022; --ink:#eef0ee; --sub:#b4bab8; --line:#33383a;
+  --accent:#6da7ec; --s1:#3987e5; --s2:#d95926; --crit:#e66767; --soft:#1f2a36;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.75 var(--body)}
+main{max-width:980px;margin:0 auto;padding:32px 16px 64px;display:grid;gap:28px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;line-height:1.35;margin:0}
+h1{font-size:30px;font-weight:900}
+h2{font-size:21px;padding-bottom:8px;border-bottom:2px solid var(--accent)}
+h3{font-size:16px}
+p{margin:0;max-width:65ch}
+.meta{color:var(--sub);font-size:13px}
+section{display:grid;gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;display:grid;gap:12px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:grid;gap:2px}
+.tile .k{font-size:12px;color:var(--sub)}
+.tile .v{font-family:var(--display);font-size:28px;font-weight:900;font-variant-numeric:tabular-nums}
+.tile .v small{font-size:14px;font-weight:700;margin-left:2px}
+.tile .n{font-size:12px;color:var(--sub)}
+.tile.alert{border-left:4px solid var(--crit)}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{color:var(--sub);font-weight:500;font-size:12px}
+th:first-child,td:first-child{text-align:left}
+tr.total td{font-weight:700;border-top:2px solid var(--ink)}
+td.hi{color:var(--crit);font-weight:700}
+.legend{display:flex;gap:16px;font-size:12.5px;color:var(--sub);flex-wrap:wrap}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+svg{display:block;width:100%;height:auto}
+svg text{fill:var(--sub);font:11px var(--body)}
+svg .val{fill:var(--ink);font-weight:500}
+svg .grid{stroke:var(--line)}
+svg rect.m:hover,svg rect.m:focus{opacity:.8}
+.note{font-size:12.5px;color:var(--sub)}
+ol.props{margin:0;padding-left:1.4em;display:grid;gap:12px}
+ol.props li{max-width:70ch}
+ol.props b{font-family:var(--display)}
+.pill{display:inline-block;font-size:11px;padding:1px 8px;border-radius:99px;background:var(--soft);color:var(--accent);margin-left:6px;vertical-align:2px}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+</style>
+</head>
+<body>
+<main>
+<header style="display:grid;gap:6px">
+  <h1>運搬売上・断り分析レポート</h1>
+  <p class="meta">対象：売上明細 2026/1/5〜10/29（税抜）、断り一覧Excel 1/9〜8/31、受注・断り管理アプリ 9/24〜10/30　作成日 2026/10/31</p>
+</header>
+
+<section>
+  <h2>要点</h2>
+  <div class="tiles">
+    <div class="tile"><span class="k">総売上（1/5〜10/29）</span><span class="v">2億3,737<small>万円</small></span><span class="n">月極67.3％／スポット32.7％</span></div>
+    <div class="tile"><span class="k">月極（8社）</span><span class="v">1億5,969<small>万円</small></span><span class="n">上位4社で月極の76％</span></div>
+    <div class="tile"><span class="k">スポット</span><span class="v">7,767<small>万円</small></span><span class="n">アクティオ1社で37％</span></div>
+    <div class="tile alert"><span class="k">断り金額（月平均）</span><span class="v">約100<small>万円</small></span><span class="n">年換算 約1,200万円＝スポットの約13％</span></div>
+  </div>
+  <div class="card">
+    <p>売上の約3分の2は月極で安定しています。課題はスポットの取りこぼしで、<b>毎月100万円前後の仕事を車両不足で断り続けています</b>。最も断っているのは最大のスポット顧客であるアクティオ（特に高岡の南砺方面）で、次に大隅・誠運輸の10t長距離です。</p>
+  </div>
+</section>
+
+<section>
+  <h2>1. 月極とスポットの売上</h2>
+  <div class="card">
+    <h3>月別売上（万円）</h3>
+    <div class="legend"><span><i style="background:var(--s1)"></i>月極</span><span><i style="background:var(--s2)"></i>スポット</span></div>
+    <div id="c1"></div>
+    <p class="note">10月はコマツ・城西・深川の月額が未計上（約330万円）とみられ、月極比率が低く見えています。</p>
+  </div>
+  <div class="two">
+    <div class="card">
+      <h3>月極ランキング</h3>
+      <div class="scroll"><table>
+        <tr><th>顧客</th><th>売上(万)</th><th>月極内</th></tr>
+        <tr><td>YKKAP滑川</td><td>3,500</td><td>21.9%</td></tr>
+        <tr><td>エコネクト物流高岡（4台枠）</td><td>3,465</td><td>21.7%</td></tr>
+        <tr><td>ウェルテクノ</td><td>2,751</td><td>17.2%</td></tr>
+        <tr><td>コマツ（富山＋物流名古屋）</td><td>2,432</td><td>15.2%</td></tr>
+        <tr><td>城西</td><td>1,033</td><td>6.5%</td></tr>
+        <tr><td>アプトシンコー（1台枠）</td><td>1,011</td><td>6.3%</td></tr>
+        <tr><td>深川</td><td>927</td><td>5.8%</td></tr>
+        <tr><td>ヨツバ</td><td>851</td><td>5.3%</td></tr>
+        <tr class="total"><td>計</td><td>15,969</td><td>100%</td></tr>
+      </table></div>
+    </div>
+    <div class="card">
+      <h3>スポットランキング（拠点合算）</h3>
+      <div class="scroll"><table>
+        <tr><th>顧客</th><th>売上(万)</th><th>スポット内</th></tr>
+        <tr><td>アクティオ（3拠点）</td><td>2,848</td><td>36.7%</td></tr>
+        <tr><td>アプトシンコー（2台目〜）</td><td>1,141</td><td>14.7%</td></tr>
+        <tr><td>藤村クレスト</td><td>797</td><td>10.3%</td></tr>
+        <tr><td>富山中央木材</td><td>758</td><td>9.8%</td></tr>
+        <tr><td>大高建設</td><td>494</td><td>6.4%</td></tr>
+        <tr><td>ニッケン（4拠点）</td><td>443</td><td>5.7%</td></tr>
+        <tr><td>大隅</td><td>180</td><td>2.3%</td></tr>
+        <tr><td>エコネクト（5台目〜＋DC）</td><td>151</td><td>1.9%</td></tr>
+        <tr><td>高野工会</td><td>147</td><td>1.9%</td></tr>
+        <tr><td>その他</td><td>808</td><td>10.4%</td></tr>
+        <tr class="total"><td>計</td><td>7,767</td><td>100%</td></tr>
+      </table></div>
+    </div>
+  </div>
+  <p class="note">月極の枠：エコネクトは1日4台（3t×1台40,000円、6t×3台43,000円）、アプトシンコーは1台42,000円。枠を超えた車はスポットとして計上。残業代は両社とも15分1,000円。単価は期間別の実績単価で検算し、請求額と一致。</p>
+</section>
+
+<section>
+  <h2>2. 断りの実態</h2>
+  <div class="card">
+    <h3>月別の断り金額（万円）</h3>
+    <div id="c2"></div>
+    <p class="note">1〜8月はExcel断り一覧、9月は9/24以降のみ（アプリ）、10月はアプリ。9月は約1週間分のため参考値です。</p>
+  </div>
+  <div class="two">
+    <div class="card">
+      <h3>顧客別の断り率（1〜8月）</h3>
+      <p class="note">断り率＝断り金額÷（売上＋断り金額）</p>
+      <div id="c3"></div>
+    </div>
+    <div class="card">
+      <h3>月内の時期別 1日あたり断り件数（1〜8月）</h3>
+      <div id="c4"></div>
+      <p class="note">8か月分で見ると、断りは第2週と月末に多く、月初は最も少なくなっています。</p>
+    </div>
+  </div>
+  <div class="card">
+    <h3>断り理由と車種（1〜8月＋9/24〜10/30）</h3>
+    <div class="scroll"><table>
+      <tr><th>理由</th><th>1〜8月 件数</th><th>金額(万)</th><th>9/24〜10/30 件数</th><th>金額(万)</th></tr>
+      <tr><td>車両空き無し（ユニック）</td><td>74</td><td>239.2</td><td>22</td><td>58.7</td></tr>
+      <tr><td>セルフ空き無し</td><td>32</td><td>98.7</td><td>10</td><td>25.1</td></tr>
+      <tr><td>10t空き無し</td><td>30</td><td>91.4</td><td>5</td><td>17.7</td></tr>
+      <tr><td>前日・当日依頼</td><td>8</td><td>17.3</td><td>5</td><td>13.3</td></tr>
+      <tr><td>時間指定NG・その他</td><td>9</td><td>26.9</td><td>5</td><td>18.4</td></tr>
+      <tr><td>理由の記入なし</td><td class="hi">94</td><td class="hi">298.7</td><td>0</td><td>0</td></tr>
+      <tr class="total"><td>計</td><td>247</td><td>772.3</td><td>47</td><td>133.2</td></tr>
+    </table></div>
+    <p class="note">アクティオ高岡の断り先：利賀村40件、白川村9件、袴腰8件、城端6件。4月15件→7月22件と増加傾向。</p>
+  </div>
+</section>
+
+<section>
+  <h2>3. 提案</h2>
+  <div class="card">
+    <ol class="props">
+      <li><b>アクティオ高岡の南砺方面便を見直す</b><span class="pill">約350万円/年</span><br>断り率25％。利賀村など往復で半日以上かかる便を24,000円で受けており、他の仕事と組めずに断りが出ています。曜日を決めた定期便化、または遠方料金の上乗せを交渉します。</li>
+      <li><b>10tまたはセルフを1台増やす</b><span class="pill">約150万円/年ずつ</span><br>大隅・誠運輸は断り率約40％で、10tの長距離（1件4〜7万円）を逃しています。単価が高い分、10tの増車が最も効果的です。セルフはアクティオ各拠点の短距離便に効きます。</li>
+      <li><b>月極顧客の追加依頼を優先する</b><br>エコネクト・アプトシンコー・城西の追加分（約4万円/台）を1〜8月に約190万円断っています。アプトシンコーは稼働日の75％で2台以上入っているため、2台目の月極化を提案します。</li>
+      <li><b>混む日の受注ルールを決める</b><br>第2週と月末は「○万円以上を優先」「アクティオは別枠で確保」などの基準を作り、単価の高い仕事を逃さないようにします。前日依頼には割増料金を設定します。</li>
+      <li><b>記録の精度を上げる</b><br>Excelの断りの約4割は理由が空欄でした。アプリは理由入力が必須なので継続し、受注側にも金額を入力すると、断りの比率を金額で追えるようになります。</li>
+    </ol>
+  </div>
+  <p class="note">注意：Excelの金額は一部概算（アクティオ高岡は一律24,000円など）。藤村クレストの断り5件は金額未記入のため集計外。アプリの断りデータは約5週間分です。</p>
+</section>
+</main>
+
+<script>
+const NS="http://www.w3.org/2000/svg";
+function el(t,a,txt){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;return e}
+const fmt=n=>n.toLocaleString("ja-JP");
+function round4(x,y,w,h,r){r=Math.min(r,w/2,h);return `M${x},${y+h}V${y+r}Q${x},${y} ${x+r},${y}H${x+w-r}Q${x+w},${y} ${x+w},${y+r}V${y+h}Z`}
+
+// 1. stacked monthly
+(function(){
+  const m=["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月"];
+  const a=[1529,1453,1716,1706,1511,1758,1774,1482,1700,1340], b=[543,619,890,811,787,961,844,651,780,880];
+  const W=900,H=300,L=46,B=26,T=14,max=3000,ih=H-B-T,bw=(W-L)/m.length*0.58;
+  const s=el("svg",{viewBox:`0 0 ${W} ${H}`,role:"img","aria-label":"月別の月極とスポット売上"});
+  for(let v=0;v<=max;v+=500){const y=T+ih-(v/max)*ih;s.append(el("line",{x1:L,x2:W,y1:y,y2:y,class:"grid"}));s.append(el("text",{x:L-6,y:y+4,"text-anchor":"end"},fmt(v)))}
+  m.forEach((mm,i)=>{const x=L+(W-L)/m.length*(i+0.5)-bw/2;const ha=a[i]/max*ih,hb=b[i]/max*ih;const y0=T+ih;
+    const r1=el("rect",{x,y:y0-ha,width:bw,height:ha,fill:"var(--s1)",class:"m",tabindex:0});r1.append(el("title",{},`${mm} 月極 ${fmt(a[i])}万円`));s.append(r1);
+    const p=el("path",{d:round4(x,y0-ha-hb,bw,hb-2,4),fill:"var(--s2)",class:"m",tabindex:0});p.append(el("title",{},`${mm} スポット ${fmt(b[i])}万円（月極比率 ${(a[i]/(a[i]+b[i])*100).toFixed(1)}%）`));s.append(p);
+    s.append(el("text",{x:x+bw/2,y:y0-ha-hb-5,"text-anchor":"middle",class:"val"},fmt(a[i]+b[i])));
+    s.append(el("text",{x:x+bw/2,y:H-8,"text-anchor":"middle"},mm));});
+  document.getElementById("c1").append(s);
+})();
+
+// generic vertical bars
+function vbars(id,labels,vals,max,step,unit,hiIdx,ariaLabel,dec,W=900,H=240){
+  const L=46,B=26,T=18,ih=H-B-T,bw=(W-L)/labels.length*0.55;
+  const s=el("svg",{viewBox:`0 0 ${W} ${H}`,role:"img","aria-label":ariaLabel});
+  for(let v=0;v<=max;v+=step){const y=T+ih-(v/max)*ih;s.append(el("line",{x1:L,x2:W,y1:y,y2:y,class:"grid"}));s.append(el("text",{x:L-6,y:y+4,"text-anchor":"end"},v))}
+  labels.forEach((lb,i)=>{const x=L+(W-L)/labels.length*(i+0.5)-bw/2,h=vals[i]/max*ih,y=T+ih-h;
+    const p=el("path",{d:round4(x,y,bw,h,4),fill:hiIdx.includes(i)?"var(--s2)":"var(--s1)",class:"m",tabindex:0});p.append(el("title",{},`${lb} ${vals[i].toFixed(dec)}${unit}`));s.append(p);
+    s.append(el("text",{x:x+bw/2,y:y-5,"text-anchor":"middle",class:"val"},vals[i].toFixed(dec)));
+    s.append(el("text",{x:x+bw/2,y:H-8,"text-anchor":"middle"},lb));});
+  document.getElementById(id).append(s);
+}
+vbars("c2",["1月","2月","3月","4月","5月","6月","7月","8月","9月*","10月"],[85.6,23.2,104.8,100.8,120.5,120.8,156.2,60.4,28.8,96.9],180,30,"万円",[6],"月別の断り金額",1);
+vbars("c4",["1〜7日","8〜14日","15〜21日","22日〜末"],[4.4,9.7,8.7,10.2],12,3,"件/日",[1,3],"月内時期別の1日あたり断り件数",1,440,260);
+
+// 3. horizontal bars
+(function(){
+  const d=[["誠運輸",40.4],["大隅",39.9],["アクティオ高岡",25.4],["ニッケン",11.3],["アクティオ西",9.2],["アクティオ富山",6.8],["プレカット",4.9],["城西",3.7],["エコネクト",3.5],["アプトシンコー",3.0]];
+  const W=440,rh=26,L=112,R=44,H=d.length*rh+10,max=50;
+  const s=el("svg",{viewBox:`0 0 ${W} ${H}`,role:"img","aria-label":"顧客別の断り率"});
+  d.forEach(([n,v],i)=>{const y=i*rh+4,w=(v/max)*(W-L-R);
+    s.append(el("text",{x:L-8,y:y+15,"text-anchor":"end"},n));
+    const p=el("path",{d:`M${L},${y+3}H${L+w-4}Q${L+w},${y+3} ${L+w},${y+7}V${y+17}Q${L+w},${y+21} ${L+w-4},${y+21}H${L}Z`,fill:v>=20?"var(--s2)":"var(--s1)",class:"m",tabindex:0});
+    p.append(el("title",{},`${n} 断り率 ${v}%`));s.append(p);
+    s.append(el("text",{x:L+w+6,y:y+16,class:"val"},v.toFixed(1)+"%"));});
+  document.getElementById("c3").append(s);
+})();
+</script>
+</body>
+</html>
