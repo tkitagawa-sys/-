@@ -77,8 +77,16 @@ const VEHICLE_TYPES = [{
   label: "フックロール車",
   color: "#a78bfa"
 }, {
+  key: "yakuin",
+  label: "役員車",
+  color: "#f472b6"
+}, {
+  key: "eigyo",
+  label: "営業車",
+  color: "#34d399"
+}, {
   key: "other",
-  label: "その他（役員車・営業車など）",
+  label: "その他",
   color: "#94a3b8"
 }];
 const UNASSIGNED = {
@@ -1429,7 +1437,7 @@ function App() {
       flexWrap: "wrap",
       marginBottom: 12
     }
-  }, chip("all", "すべて", C.text, allVehicles.filter(v => !v.sold).length, overdueOf(null)), VEHICLE_TYPES.map(t => chip(t.key, t.label.replace(/（.*）/, ""), t.color, countOf(t.key), overdueOf(t.key))), unassigned > 0 && chip("none", "未分類", UNASSIGNED.color, unassigned, overdueOf(""))), /*#__PURE__*/React.createElement("div", {
+  }, chip("all", "すべて", C.text, allVehicles.filter(v => !v.sold).length, overdueOf(null)), VEHICLE_TYPES.map(t => chip(t.key, t.label, t.color, countOf(t.key), overdueOf(t.key))), unassigned > 0 && chip("none", "未分類", UNASSIGNED.color, unassigned, overdueOf(""))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       justifyContent: "space-between",
