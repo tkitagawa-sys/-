@@ -1189,6 +1189,16 @@ function useStore() {
   };
 }
 
+/* ---------- ユニック点検の判定 ---------- */
+
+const UNIC_RE = /ﾕﾆｯｸ|ユニック|クレ[ーｰ\-]?ン/;
+
+// ユニック車として扱う：車種がユニック車、または点検記録にユニック/クレーン点検がある
+const isUnicVehicle = v => v.type === "unic" || v.items.some(i => UNIC_RE.test(i.content));
+
+// その年にユニック（クレーン）点検を実施済みか
+const unicDoneIn = (v, year) => v.items.some(i => i.year === year && i.done && UNIC_RE.test(i.content));
+
 /* ---------- メイン ---------- */
 
 function App() {
@@ -1206,6 +1216,7 @@ function App() {
   const [filter, setFilter] = useState("all"); // all / 車種key / "none"
   const [query, setQuery] = useState("");
   const [showSold, setShowSold] = useState(false);
+  const [unicMissing, setUnicMissing] = useState(false);
   const [year, setYear] = useState(new Date().getFullYear());
   const [cellEdit, setCellEdit] = useState(null); // { vehicle, month }
   const [vehicleEdit, setVehicleEdit] = useState(null); // vehicle
@@ -1213,7 +1224,8 @@ function App() {
   const [notice, setNotice] = useState("");
   const [notesDraft, setNotesDraft] = useState(null);
   const q = query.trim().replace(/\s+/g, "");
-  const visible = allVehicles.filter(v => (showSold || !v.sold) && (!q || `${v.plate}${v.driver}${v.memo}`.replace(/\s+/g, "").includes(q)));
+  const visible = allVehicles.filter(v => (showSold || !v.sold) && (!q || `${v.plate}${v.driver}${v.memo}`.replace(/\s+/g, "").includes(q)) && (!unicMissing || isUnicVehicle(v) && !unicDoneIn(v, year)));
+  const unicMissingCount = allVehicles.filter(v => !v.sold && isUnicVehicle(v) && !unicDoneIn(v, year)).length;
   const allTypes = [...VEHICLE_TYPES, UNASSIGNED];
   const groups = allTypes.filter(t => filter === "all" || (filter === "none" ? !t.key : t.key === filter)).map(t => ({
     type: t,
@@ -1470,7 +1482,25 @@ function App() {
       padding: "8px 10px",
       fontSize: 13
     }
-  }), /*#__PURE__*/React.createElement("label", {
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setUnicMissing(!unicMissing),
+    style: {
+      padding: "8px 12px",
+      borderRadius: 8,
+      cursor: "pointer",
+      fontFamily: FONT,
+      fontSize: 13,
+      fontWeight: 700,
+      border: `1px solid ${unicMissing ? C.overdue : C.line}`,
+      background: unicMissing ? C.overdue : C.panel,
+      color: unicMissing ? "#fff" : C.text
+    }
+  }, unicMissing ? "✓ " : "", year, "年 ユニック点検 未実施", /*#__PURE__*/React.createElement("span", {
+    style: {
+      marginLeft: 6,
+      fontFamily: MONO
+    }
+  }, unicMissingCount, "台")), /*#__PURE__*/React.createElement("label", {
     style: {
       display: "flex",
       alignItems: "center",
