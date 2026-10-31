@@ -1,5 +1,5 @@
-const CACHE_NAME = "freight-calc-v7";
-const APP_SHELL = ["/", "/index.html", "/app.js", "/manifest.json"];
+const CACHE_NAME = "freight-calc-v8";
+const APP_SHELL = ["/", "/index.html", "/app.js", "/manifest.json", "/inspection.html", "/inspection.js", "/inspection-data.js"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

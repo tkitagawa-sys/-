@@ -467,7 +467,8 @@ function App() {
 
         <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: "#333", lineHeight: 1.8 }}>
           ※概算値です。実際のコストに合わせてパラメータを調整してください<br />
-          ※データはこの端末内に保存されます。定期的にCSVで書き出してください
+          ※データはこの端末内に保存されます。定期的にCSVで書き出してください<br />
+          <a href="inspection.html" style={{ color: "#8a8f98" }}>🚚 車輌点検一覧表を開く</a>
         </div>
       </div>
     </div>
