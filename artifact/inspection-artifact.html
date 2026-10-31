@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>車輌点検一覧表</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet" />
-<style>* { box-sizing: border-box; margin: 0; padding: 0; } body { background: #13151a; }</style>
+<style>* { box-sizing: border-box; margin: 0; padding: 0; } body { background: #f3f4f6; }</style>
 </head>
 <body>
 <div id="root"></div>
@@ -23,18 +23,18 @@ const EXPIRY_WARN_DAYS = 45;
 const FONT = "'Noto Sans JP', sans-serif";
 const MONO = "'DM Mono', monospace";
 const C = {
-  bg: "#13151a",
-  panel: "#1a1d24",
-  input: "#1e2128",
-  line: "#2a2d35",
-  text: "#e8eaf0",
-  sub: "#8a8f98",
-  dim: "#555",
-  done: "#4ade80",
-  overdue: "#ff6b6b",
-  now: "#f59e0b",
-  plan: "#8a8f98",
-  shaken: "#2a6ef5"
+  bg: "#f3f4f6",
+  panel: "#ffffff",
+  input: "#ffffff",
+  line: "#d6d9de",
+  text: "#1f2328",
+  sub: "#5b6270",
+  dim: "#8a909c",
+  done: "#16a34a",
+  overdue: "#dc2626",
+  now: "#d97706",
+  plan: "#6b7280",
+  shaken: "#2563eb"
 };
 const newId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const p2 = n => String(n).padStart(2, "0");
@@ -67,32 +67,32 @@ function saveLocal(data) {
 const VEHICLE_TYPES = [{
   key: "unic",
   label: "ユニック車",
-  color: "#f59e0b"
+  color: "#d97706"
 }, {
   key: "wing",
   label: "ウィング車",
-  color: "#38bdf8"
+  color: "#0284c7"
 }, {
   key: "hook",
   label: "フックロール車",
-  color: "#a78bfa"
+  color: "#7c3aed"
 }, {
   key: "yakuin",
   label: "役員車",
-  color: "#f472b6"
+  color: "#db2777"
 }, {
   key: "eigyo",
   label: "営業車",
-  color: "#34d399"
+  color: "#059669"
 }, {
   key: "other",
   label: "その他",
-  color: "#94a3b8"
+  color: "#6b7280"
 }];
 const UNASSIGNED = {
   key: "",
   label: "未分類",
-  color: "#ff6b6b"
+  color: "#dc2626"
 };
 const typeOf = key => VEHICLE_TYPES.find(t => t.key === key) || UNASSIGNED;
 const byOrder = (a, b) => (a.order ?? 0) - (b.order ?? 0);
@@ -245,7 +245,7 @@ const btn = (bg, color = "#fff") => ({
 const ghostBtn = {
   padding: "10px 14px",
   borderRadius: 8,
-  border: `1px solid #3a3d45`,
+  border: `1px solid #c4c8cf`,
   background: "transparent",
   color: C.sub,
   fontSize: 12,
@@ -279,7 +279,7 @@ function Modal({
     style: {
       position: "fixed",
       inset: 0,
-      background: "#000a",
+      background: "#0006",
       zIndex: 50,
       display: "flex",
       justifyContent: "center",
@@ -549,7 +549,7 @@ function ItemEditor({
   }, "キャンセル"), /*#__PURE__*/React.createElement("button", {
     onClick: handleSave,
     style: {
-      ...btn("#2a6ef5"),
+      ...btn("#2563eb"),
       flex: 2
     }
   }, "保存")));
@@ -717,7 +717,7 @@ function VehicleEditor({
   }, "キャンセル"), /*#__PURE__*/React.createElement("button", {
     onClick: handleSave,
     style: {
-      ...btn("#2a6ef5"),
+      ...btn("#2563eb"),
       flex: 2
     }
   }, "保存")));
@@ -821,13 +821,17 @@ function InspectionTable({
 }) {
   const now = new Date();
   const curMonth = now.getFullYear() === year ? now.getMonth() + 1 : 0;
+  // 見出し行は表の上端に固定（下にスクロールしても何月か分かるように）
   const th = {
-    padding: "8px 4px",
-    fontSize: 11,
-    color: C.dim,
-    fontWeight: 400,
-    borderBottom: `1px solid ${C.line}`,
-    background: C.panel
+    padding: "10px 4px",
+    fontSize: 13,
+    color: C.sub,
+    fontWeight: 700,
+    borderBottom: `2px solid ${C.line}`,
+    background: "#eef0f3",
+    position: "sticky",
+    top: 0,
+    zIndex: 3
   };
   const total = groups.reduce((n, g) => n + g.vehicles.length, 0);
   if (total === 0) {
@@ -844,9 +848,11 @@ function InspectionTable({
   }
   return /*#__PURE__*/React.createElement("div", {
     style: {
-      overflowX: "auto",
+      overflow: "auto",
+      maxHeight: "calc(100vh - 24px)",
       border: `1px solid ${C.line}`,
-      borderRadius: 12
+      borderRadius: 12,
+      background: C.panel
     }
   }, /*#__PURE__*/React.createElement("table", {
     style: {
@@ -860,19 +866,20 @@ function InspectionTable({
     style: {
       ...th,
       textAlign: "left",
-      position: "sticky",
       left: 0,
-      zIndex: 2,
+      zIndex: 4,
       minWidth: 170,
-      paddingLeft: 12
+      paddingLeft: 12,
+      fontSize: 11,
+      fontWeight: 400
     }
   }, "車番 / 担当 / 車検期限"), MONTHS.map(m => /*#__PURE__*/React.createElement("th", {
     key: m,
     style: {
       ...th,
       minWidth: 82,
-      color: m === curMonth ? C.now : C.dim,
-      fontWeight: m === curMonth ? 700 : 400
+      color: m === curMonth ? "#fff" : C.text,
+      background: m === curMonth ? C.now : th.background
     }
   }, m, "月")))), /*#__PURE__*/React.createElement("tbody", null, groups.filter(g => g.vehicles.length > 0).map(g => /*#__PURE__*/React.createElement(React.Fragment, {
     key: g.type.key || "none"
@@ -944,7 +951,7 @@ function InspectionTable({
     }, formatFullDate(v.expiry), exp ? ` ${exp.text}` : ""), v.memo && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 10,
-        color: "#6a6f78",
+        color: "#6b7280",
         marginTop: 3,
         whiteSpace: "pre-line",
         maxWidth: 170
@@ -1023,7 +1030,7 @@ function ConfirmDialog({
       onClose();
     },
     style: {
-      ...btn(danger ? "#b83838" : "#2a6ef5"),
+      ...btn(danger ? "#b83838" : "#2563eb"),
       flex: 2
     }
   }, okLabel)));
@@ -1491,7 +1498,7 @@ function App() {
       items: [],
       type: filter !== "all" && filter !== "none" ? filter : ""
     }),
-    style: btn("#2a6ef5")
+    style: btn("#2563eb")
   }, "＋ 車輌を追加")), /*#__PURE__*/React.createElement(InspectionTable, {
     groups: groups,
     year: year,
@@ -1575,7 +1582,7 @@ function App() {
     }
   }, /*#__PURE__*/React.createElement("button", {
     onClick: exportCSV,
-    style: btn("#1e6f3f", "#d5f5e3")
+    style: btn("#15803d", "#ffffff")
   }, "📊 ", year, "年をCSVで書き出し"), /*#__PURE__*/React.createElement("button", {
     onClick: exportJSON,
     style: ghostBtn
@@ -1601,7 +1608,7 @@ function App() {
       textAlign: "center",
       marginTop: 20,
       fontSize: 11,
-      color: "#444",
+      color: "#8a909c",
       lineHeight: 1.8
     }
   }, store.mode === "shared" ? "※入力内容はこのページを共有している全員に反映されます" : "※データはこの端末内に保存されます", /*#__PURE__*/React.createElement("br", null), "※車検完了後は車輌編集から車検有効期限を更新してください")), cellEdit && /*#__PURE__*/React.createElement(ItemEditor, {
