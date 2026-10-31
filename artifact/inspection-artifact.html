@@ -1,0 +1,1563 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>車輌点検一覧表</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet" />
+<style>* { box-sizing: border-box; margin: 0; padding: 0; } body { background: #13151a; }</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script>
+const {
+  useState,
+  useEffect
+} = React;
+const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+const CONTENT_PRESETS = ["3ヶ月", "車検", "ﾕﾆｯｸ", "クレーン点検", "新車1年点検", "年次検査", "セルフ点検"];
+const SHOP_PRESETS = ["三愛自動車", "日野自動車", "いすゞ", "中田自動車", "富山地鉄", "北陸車検", "トヨタ"];
+const EXPIRY_WARN_DAYS = 45;
+const FONT = "'Noto Sans JP', sans-serif";
+const MONO = "'DM Mono', monospace";
+const C = {
+  bg: "#13151a",
+  panel: "#1a1d24",
+  input: "#1e2128",
+  line: "#2a2d35",
+  text: "#e8eaf0",
+  sub: "#8a8f98",
+  dim: "#555",
+  done: "#4ade80",
+  overdue: "#ff6b6b",
+  now: "#f59e0b",
+  plan: "#8a8f98",
+  shaken: "#2a6ef5"
+};
+const newId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const p2 = n => String(n).padStart(2, "0");
+
+/* ---------- 保存まわり（Artifactの共有データベース） ---------- */
+// teams/{id}    : { name, checker, notes, order }
+// vehicles/{id} : { teamId, plate, driver, expiry, memo, sold, items, order }
+
+const LOCAL_KEY = "vehicle-inspection-local-v1";
+function loadLocal() {
+  try {
+    const d = JSON.parse(localStorage.getItem(LOCAL_KEY) || "null");
+    if (d && Array.isArray(d.teams) && Array.isArray(d.vehicles)) return d;
+  } catch (e) {/* 使えない環境では空で始める */}
+  return {
+    teams: [],
+    vehicles: []
+  };
+}
+function saveLocal(data) {
+  try {
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(data));
+  } catch (e) {/* 保存できなくても画面は動かす */}
+}
+const byOrder = (a, b) => (a.order ?? 0) - (b.order ?? 0);
+const stripId = ({
+  id,
+  ...rest
+}) => rest;
+
+/* ---------- 日付・状態判定 ---------- */
+
+function formatDate(s) {
+  if (!s) return "";
+  const m = /^(\d{4})-(\d\d)-(\d\d)$/.exec(s);
+  return m ? `${Number(m[2])}/${Number(m[3])}` : s;
+}
+function formatFullDate(s) {
+  const m = /^(\d{4})-(\d\d)-(\d\d)$/.exec(s || "");
+  return m ? `${m[1]}/${m[2]}/${m[3]}` : s || "—";
+}
+function daysUntil(iso) {
+  const m = /^(\d{4})-(\d\d)-(\d\d)$/.exec(iso || "");
+  if (!m) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((new Date(+m[1], +m[2] - 1, +m[3]) - today) / 86400000);
+}
+
+// done=実施済み / overdue=月が過ぎたのに未実施 / now=今月予定 / plan=先の予定
+function itemStatus(item) {
+  if (item.done) return "done";
+  const now = new Date();
+  const ym = now.getFullYear() * 12 + now.getMonth() + 1;
+  const target = item.year * 12 + item.month;
+  if (target < ym) return "overdue";
+  if (target === ym) return "now";
+  return "plan";
+}
+const STATUS_LABEL = {
+  done: "実施済",
+  overdue: "未実施",
+  now: "今月",
+  plan: "予定"
+};
+function expiryInfo(v) {
+  const d = daysUntil(v.expiry);
+  if (d === null || v.sold) return null;
+  if (d > EXPIRY_WARN_DAYS) return null;
+  // 期限の約3ヶ月前以降に車検を実施済みなら、期限日の更新漏れとして扱う
+  const renewed = v.items.some(i => i.done && i.content.includes("車検") && i.year * 12 + i.month >= Number(v.expiry.slice(0, 4)) * 12 + Number(v.expiry.slice(5, 7)) - 3);
+  if (renewed) return {
+    color: C.now,
+    text: "車検済・期限日を更新",
+    renewed: true
+  };
+  if (d < 0) return {
+    color: C.overdue,
+    text: `期限切れ ${-d}日`
+  };
+  if (d <= EXPIRY_WARN_DAYS) return {
+    color: C.now,
+    text: `あと${d}日`
+  };
+  return null;
+}
+
+// 車検月を基準に、3ヶ月点検を3・6・9ヶ月ずらしで配置
+function autoSchedule(expiry, year) {
+  const m = /^(\d{4})-(\d\d)/.exec(expiry || "");
+  if (!m) return [];
+  const sm = Number(m[2]);
+  const items = [{
+    id: newId(),
+    year,
+    month: sm,
+    content: "車検",
+    date: "",
+    shop: "",
+    done: false
+  }];
+  [3, 6, 9].forEach(off => {
+    items.push({
+      id: newId(),
+      year,
+      month: (sm - 1 + off) % 12 + 1,
+      content: "3ヶ月",
+      date: "",
+      shop: "",
+      done: false
+    });
+  });
+  return items.sort((a, b) => a.month - b.month);
+}
+
+/* ---------- CSV出力 ---------- */
+
+async function saveFile(filename, data) {
+  const downloads = await claude.use("downloads");
+  if (!downloads) throw new Error("unavailable");
+  await downloads.save({
+    filename,
+    data
+  });
+}
+function todayStamp() {
+  const d = new Date();
+  return `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}`;
+}
+function csvText(data, year) {
+  const esc = val => {
+    const s = val === undefined || val === null ? "" : String(val);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const header = ["チーム", "車番", "担当者", "車検有効期限", "年", "月", "内容", "実施日", "業者・請求書", "状態"];
+  const rows = [];
+  data.teams.forEach(t => {
+    data.vehicles.filter(v => v.teamId === t.id).forEach(v => {
+      const items = v.items.filter(i => i.year === year).sort((a, b) => a.month - b.month);
+      if (items.length === 0) rows.push([t.name, v.plate, v.driver, v.expiry, year, "", "", "", "", v.sold ? "売却" : ""]);
+      items.forEach(i => rows.push([t.name, v.plate, v.driver, v.expiry, i.year, i.month, i.content, i.date, i.shop, STATUS_LABEL[itemStatus(i)]]));
+    });
+  });
+  const csv = [header, ...rows].map(r => r.map(esc).join(",")).join("\r\n");
+  // BOM付きUTF-8 → Excelで開いても文字化けしない
+  return "\uFEFF" + csv;
+}
+
+/* ---------- UI部品 ---------- */
+
+const inputStyle = {
+  width: "100%",
+  background: C.input,
+  color: C.text,
+  border: `1px solid ${C.line}`,
+  borderRadius: 8,
+  padding: "10px",
+  fontSize: 14,
+  fontFamily: FONT
+};
+const btn = (bg, color = "#fff") => ({
+  padding: "10px 14px",
+  borderRadius: 8,
+  border: "none",
+  background: bg,
+  color,
+  fontSize: 13,
+  fontWeight: 700,
+  cursor: "pointer",
+  fontFamily: FONT
+});
+const ghostBtn = {
+  padding: "10px 14px",
+  borderRadius: 8,
+  border: `1px solid #3a3d45`,
+  background: "transparent",
+  color: C.sub,
+  fontSize: 12,
+  cursor: "pointer",
+  fontFamily: FONT
+};
+function Field({
+  label,
+  children
+}) {
+  return /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "block",
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.sub,
+      marginBottom: 6
+    }
+  }, label), children);
+}
+function Modal({
+  title,
+  onClose,
+  children
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    onClick: onClose,
+    style: {
+      position: "fixed",
+      inset: 0,
+      background: "#000a",
+      zIndex: 50,
+      display: "flex",
+      justifyContent: "center",
+      alignItems: "flex-start",
+      padding: "40px 12px",
+      overflowY: "auto"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    onClick: e => e.stopPropagation(),
+    style: {
+      width: "100%",
+      maxWidth: 480,
+      background: C.panel,
+      border: `1px solid ${C.line}`,
+      borderRadius: 16,
+      padding: 22,
+      fontFamily: FONT
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 18
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 16,
+      fontWeight: 700,
+      color: C.text,
+      whiteSpace: "pre-line"
+    }
+  }, title), /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    style: {
+      background: "none",
+      border: "none",
+      color: C.sub,
+      fontSize: 22,
+      cursor: "pointer"
+    }
+  }, "×")), children));
+}
+function Chip({
+  item
+}) {
+  const st = itemStatus(item);
+  const color = C[st];
+  const isShaken = item.content.includes("車検");
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderLeft: `3px solid ${isShaken ? C.shaken : color}`,
+      background: `${color}14`,
+      borderRadius: 4,
+      padding: "3px 5px",
+      marginBottom: 3,
+      textAlign: "left"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.text,
+      fontWeight: isShaken ? 700 : 400,
+      whiteSpace: "pre-line",
+      lineHeight: 1.35,
+      wordBreak: "break-all"
+    }
+  }, st === "done" ? "✓ " : "", item.content || "（内容なし）"), (item.date || item.shop) && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.sub,
+      marginTop: 1,
+      lineHeight: 1.3,
+      wordBreak: "break-all"
+    }
+  }, formatDate(item.date), item.date && item.shop ? " " : "", item.shop));
+}
+
+/* ---------- 点検の編集（車輌×月） ---------- */
+
+function ItemEditor({
+  vehicle,
+  year,
+  month,
+  onSave,
+  onClose
+}) {
+  const [items, setItems] = useState(vehicle.items.filter(i => i.year === year && i.month === month).map(i => ({
+    ...i
+  })));
+  const update = (id, patch) => setItems(items.map(i => i.id === id ? {
+    ...i,
+    ...patch
+  } : i));
+  const add = (content = "") => setItems([...items, {
+    id: newId(),
+    year,
+    month,
+    content,
+    date: "",
+    shop: "",
+    done: false
+  }]);
+  const remove = id => setItems(items.filter(i => i.id !== id));
+  const handleSave = () => {
+    const others = vehicle.items.filter(i => !(i.year === year && i.month === month));
+    const cleaned = items.filter(i => i.content.trim() || i.date.trim() || i.shop.trim()).map(i => ({
+      ...i,
+      content: i.content.trim(),
+      date: i.date.trim(),
+      shop: i.shop.trim()
+    }));
+    onSave({
+      ...vehicle,
+      items: [...others, ...cleaned]
+    });
+  };
+  return /*#__PURE__*/React.createElement(Modal, {
+    title: `${vehicle.plate}（${vehicle.driver || "担当未設定"}）\n${year}年${month}月の点検`,
+    onClose: onClose
+  }, /*#__PURE__*/React.createElement("datalist", {
+    id: "content-presets"
+  }, CONTENT_PRESETS.map(c => /*#__PURE__*/React.createElement("option", {
+    key: c,
+    value: c
+  }))), /*#__PURE__*/React.createElement("datalist", {
+    id: "shop-presets"
+  }, SHOP_PRESETS.map(c => /*#__PURE__*/React.createElement("option", {
+    key: c,
+    value: c
+  }))), items.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: C.sub,
+      marginBottom: 14
+    }
+  }, "この月の予定はまだありません"), items.map(i => /*#__PURE__*/React.createElement("div", {
+    key: i.id,
+    style: {
+      background: C.bg,
+      borderRadius: 10,
+      padding: 14,
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement(Field, {
+    label: "内容"
+  }, /*#__PURE__*/React.createElement("textarea", {
+    list: "content-presets",
+    value: i.content,
+    rows: i.content.includes("\n") ? 3 : 1,
+    onChange: e => update(i.id, {
+      content: e.target.value
+    }),
+    style: {
+      ...inputStyle,
+      resize: "vertical"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 6,
+      marginTop: 6
+    }
+  }, CONTENT_PRESETS.map(c => /*#__PURE__*/React.createElement("button", {
+    key: c,
+    onClick: e => {
+      e.preventDefault();
+      update(i.id, {
+        content: c
+      });
+    },
+    style: {
+      padding: "4px 8px",
+      borderRadius: 6,
+      fontSize: 11,
+      cursor: "pointer",
+      fontFamily: FONT,
+      border: `1px solid ${i.content === c ? C.shaken : C.line}`,
+      background: i.content === c ? `${C.shaken}33` : "transparent",
+      color: C.sub
+    }
+  }, c)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement(Field, {
+    label: "実施日"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: /^\d{4}-\d\d-\d\d$/.test(i.date) ? i.date : "",
+    onChange: e => update(i.id, {
+      date: e.target.value,
+      done: e.target.value ? true : i.done
+    }),
+    style: inputStyle
+  }), i.date && !/^\d{4}-\d\d-\d\d$/.test(i.date) && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.sub,
+      marginTop: 4
+    }
+  }, "記録：", i.date)), /*#__PURE__*/React.createElement(Field, {
+    label: "業者・請求書"
+  }, /*#__PURE__*/React.createElement("input", {
+    list: "shop-presets",
+    value: i.shop,
+    onChange: e => update(i.id, {
+      shop: e.target.value
+    }),
+    style: inputStyle
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      fontSize: 13,
+      color: i.done ? C.done : C.sub,
+      cursor: "pointer"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: i.done,
+    onChange: e => update(i.id, {
+      done: e.target.checked
+    }),
+    style: {
+      width: 18,
+      height: 18
+    }
+  }), "実施済み"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => remove(i.id),
+    style: {
+      background: "none",
+      border: "none",
+      color: C.dim,
+      fontSize: 12,
+      cursor: "pointer",
+      textDecoration: "underline"
+    }
+  }, "この点検を削除")))), /*#__PURE__*/React.createElement("button", {
+    onClick: () => add(),
+    style: {
+      ...ghostBtn,
+      width: "100%",
+      marginBottom: 16
+    }
+  }, "＋ 点検を追加"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    style: {
+      ...ghostBtn,
+      flex: 1
+    }
+  }, "キャンセル"), /*#__PURE__*/React.createElement("button", {
+    onClick: handleSave,
+    style: {
+      ...btn("#2a6ef5"),
+      flex: 2
+    }
+  }, "保存")));
+}
+
+/* ---------- 車輌の追加・編集 ---------- */
+
+function VehicleEditor({
+  vehicle,
+  teams,
+  year,
+  onSave,
+  onDelete,
+  onClose
+}) {
+  const isNew = !vehicle.id;
+  const [v, setV] = useState({
+    ...vehicle
+  });
+  const [auto, setAuto] = useState(isNew);
+  const [error, setError] = useState("");
+  const set = patch => setV({
+    ...v,
+    ...patch
+  });
+  const handleSave = () => {
+    if (!v.plate.trim()) {
+      setError("車番を入力してください");
+      return;
+    }
+    let items = v.items || [];
+    if (isNew && auto) items = autoSchedule(v.expiry, year);
+    onSave({
+      ...v,
+      id: v.id || newId(),
+      plate: v.plate.trim(),
+      driver: v.driver.trim(),
+      items
+    });
+  };
+  return /*#__PURE__*/React.createElement(Modal, {
+    title: isNew ? "車輌を追加" : "車輌情報の編集",
+    onClose: onClose
+  }, /*#__PURE__*/React.createElement(Field, {
+    label: "車番"
+  }, /*#__PURE__*/React.createElement("input", {
+    value: v.plate,
+    onChange: e => {
+      set({
+        plate: e.target.value
+      });
+      setError("");
+    },
+    placeholder: "富山 130 あ 1234",
+    style: inputStyle
+  }), error && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.overdue,
+      marginTop: 4
+    }
+  }, error)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement(Field, {
+    label: "担当者"
+  }, /*#__PURE__*/React.createElement("input", {
+    value: v.driver,
+    onChange: e => set({
+      driver: e.target.value
+    }),
+    style: inputStyle
+  })), /*#__PURE__*/React.createElement(Field, {
+    label: "チーム"
+  }, /*#__PURE__*/React.createElement("select", {
+    value: v.teamId,
+    onChange: e => set({
+      teamId: e.target.value
+    }),
+    style: inputStyle
+  }, teams.map(t => /*#__PURE__*/React.createElement("option", {
+    key: t.id,
+    value: t.id
+  }, t.name))))), /*#__PURE__*/React.createElement(Field, {
+    label: "車検有効期限"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: v.expiry,
+    onChange: e => set({
+      expiry: e.target.value
+    }),
+    style: inputStyle
+  })), /*#__PURE__*/React.createElement(Field, {
+    label: "メモ"
+  }, /*#__PURE__*/React.createElement("textarea", {
+    value: v.memo,
+    rows: 2,
+    onChange: e => set({
+      memo: e.target.value
+    }),
+    style: {
+      ...inputStyle,
+      resize: "vertical"
+    }
+  })), /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      fontSize: 13,
+      color: C.sub,
+      marginBottom: 14,
+      cursor: "pointer"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: v.sold,
+    onChange: e => set({
+      sold: e.target.checked
+    }),
+    style: {
+      width: 18,
+      height: 18
+    }
+  }), "売却済み（一覧でグレー表示）"), isNew && /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      fontSize: 13,
+      color: C.sub,
+      marginBottom: 18,
+      cursor: "pointer"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: auto,
+    onChange: e => setAuto(e.target.checked),
+    style: {
+      width: 18,
+      height: 18
+    }
+  }), "車検月から", year, "年の予定（車検＋3ヶ月点検×3）を自動作成"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, !isNew && /*#__PURE__*/React.createElement("button", {
+    onClick: () => onDelete(v),
+    style: {
+      ...ghostBtn,
+      color: C.overdue,
+      borderColor: `${C.overdue}66`
+    }
+  }, "削除"), /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    style: {
+      ...ghostBtn,
+      flex: 1
+    }
+  }, "キャンセル"), /*#__PURE__*/React.createElement("button", {
+    onClick: handleSave,
+    style: {
+      ...btn("#2a6ef5"),
+      flex: 2
+    }
+  }, "保存")));
+}
+
+/* ---------- サマリー ---------- */
+
+function SummaryCards({
+  vehicles,
+  year
+}) {
+  const now = new Date();
+  const thisYear = now.getFullYear();
+  const thisMonth = now.getMonth() + 1;
+  const active = vehicles.filter(v => !v.sold);
+  const items = active.flatMap(v => v.items.filter(i => i.year === year).map(i => ({
+    ...i,
+    v
+  })));
+  const monthItems = year === thisYear ? items.filter(i => i.month === thisMonth) : [];
+  const overdue = items.filter(i => itemStatus(i) === "overdue");
+  const expiring = active.filter(v => {
+    const e = expiryInfo(v);
+    return e && !e.renewed;
+  });
+  const needUpdate = active.filter(v => {
+    const e = expiryInfo(v);
+    return e && e.renewed;
+  });
+  const Card = ({
+    label,
+    value,
+    color,
+    sub
+  }) => /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.panel,
+      border: `1px solid ${C.line}`,
+      borderRadius: 12,
+      padding: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.dim,
+      marginBottom: 6
+    }
+  }, label), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 24,
+      fontWeight: 700,
+      color,
+      fontFamily: MONO
+    }
+  }, value), sub && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.sub,
+      marginTop: 4
+    }
+  }, sub));
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+      gap: 10,
+      marginBottom: 20
+    }
+  }, /*#__PURE__*/React.createElement(Card, {
+    label: "登録車輌",
+    value: active.length,
+    color: C.text,
+    sub: `売却済み ${vehicles.length - active.length}台`
+  }), /*#__PURE__*/React.createElement(Card, {
+    label: year === thisYear ? `今月（${thisMonth}月）の点検` : "今月の点検",
+    value: monthItems.length,
+    color: C.now,
+    sub: year === thisYear ? `うち実施済み ${monthItems.filter(i => i.done).length}件` : `${year}年を表示中`
+  }), /*#__PURE__*/React.createElement(Card, {
+    label: "過ぎた月の未実施",
+    value: overdue.length,
+    color: overdue.length ? C.overdue : C.done,
+    sub: "実施日の入力漏れも含む"
+  }), /*#__PURE__*/React.createElement(Card, {
+    label: `車検期限 ${EXPIRY_WARN_DAYS}日以内・切れ`,
+    value: expiring.length,
+    color: expiring.length ? C.overdue : C.done,
+    sub: `車検済で期限日の更新待ち ${needUpdate.length}台`
+  }));
+}
+
+/* ---------- 一覧表 ---------- */
+
+function InspectionTable({
+  vehicles,
+  year,
+  onCell,
+  onVehicle
+}) {
+  const now = new Date();
+  const curMonth = now.getFullYear() === year ? now.getMonth() + 1 : 0;
+  const th = {
+    padding: "8px 4px",
+    fontSize: 11,
+    color: C.dim,
+    fontWeight: 400,
+    borderBottom: `1px solid ${C.line}`,
+    background: C.panel
+  };
+  if (vehicles.length === 0) {
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 13,
+        color: C.sub,
+        padding: 20
+      }
+    }, "このチームには車輌が登録されていません");
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      overflowX: "auto",
+      border: `1px solid ${C.line}`,
+      borderRadius: 12
+    }
+  }, /*#__PURE__*/React.createElement("table", {
+    style: {
+      borderCollapse: "separate",
+      borderSpacing: 0,
+      minWidth: 1180,
+      width: "100%",
+      fontFamily: FONT
+    }
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    style: {
+      ...th,
+      textAlign: "left",
+      position: "sticky",
+      left: 0,
+      zIndex: 2,
+      minWidth: 150,
+      paddingLeft: 12
+    }
+  }, "車番 / 担当 / 車検期限"), MONTHS.map(m => /*#__PURE__*/React.createElement("th", {
+    key: m,
+    style: {
+      ...th,
+      minWidth: 82,
+      color: m === curMonth ? C.now : C.dim,
+      fontWeight: m === curMonth ? 700 : 400
+    }
+  }, m, "月")))), /*#__PURE__*/React.createElement("tbody", null, vehicles.map(v => {
+    const exp = expiryInfo(v);
+    return /*#__PURE__*/React.createElement("tr", {
+      key: v.id,
+      style: {
+        opacity: v.sold ? 0.45 : 1
+      }
+    }, /*#__PURE__*/React.createElement("td", {
+      onClick: () => onVehicle(v),
+      style: {
+        position: "sticky",
+        left: 0,
+        zIndex: 1,
+        background: C.panel,
+        cursor: "pointer",
+        borderBottom: `1px solid ${C.line}`,
+        borderRight: `1px solid ${C.line}`,
+        padding: "8px 8px 8px 12px",
+        verticalAlign: "top"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 13,
+        fontWeight: 700,
+        color: C.text,
+        whiteSpace: "nowrap"
+      }
+    }, v.plate), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: C.sub,
+        marginTop: 2
+      }
+    }, v.driver || "—", v.sold ? "（売却）" : ""), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: exp ? exp.color : C.dim,
+        marginTop: 2,
+        fontFamily: MONO
+      }
+    }, formatFullDate(v.expiry), exp ? ` ${exp.text}` : ""), v.memo && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "#6a6f78",
+        marginTop: 3,
+        whiteSpace: "pre-line",
+        maxWidth: 160
+      }
+    }, "📝 ", v.memo)), MONTHS.map(m => {
+      const items = v.items.filter(i => i.year === year && i.month === m);
+      return /*#__PURE__*/React.createElement("td", {
+        key: m,
+        onClick: () => onCell(v, m),
+        style: {
+          borderBottom: `1px solid ${C.line}`,
+          borderRight: `1px solid ${C.line}22`,
+          padding: 4,
+          verticalAlign: "top",
+          cursor: "pointer",
+          background: m === curMonth ? `${C.now}0d` : "transparent"
+        }
+      }, items.map(i => /*#__PURE__*/React.createElement(Chip, {
+        key: i.id,
+        item: i
+      })));
+    }));
+  }))));
+}
+
+/* ---------- 確認ダイアログ（ページ内） ---------- */
+
+function ConfirmDialog({
+  message,
+  okLabel,
+  danger,
+  onOk,
+  onClose
+}) {
+  return /*#__PURE__*/React.createElement(Modal, {
+    title: "確認",
+    onClose: onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      color: C.text,
+      lineHeight: 1.7,
+      whiteSpace: "pre-line",
+      marginBottom: 20
+    }
+  }, message), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    style: {
+      ...ghostBtn,
+      flex: 1
+    }
+  }, "キャンセル"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      onOk();
+      onClose();
+    },
+    style: {
+      ...btn(danger ? "#b83838" : "#2a6ef5"),
+      flex: 2
+    }
+  }, okLabel)));
+}
+function TeamDialog({
+  onSave,
+  onClose
+}) {
+  const [name, setName] = useState("");
+  const [checker, setChecker] = useState("");
+  return /*#__PURE__*/React.createElement(Modal, {
+    title: "チームを追加",
+    onClose: onClose
+  }, /*#__PURE__*/React.createElement(Field, {
+    label: "チーム名"
+  }, /*#__PURE__*/React.createElement("input", {
+    value: name,
+    onChange: e => setName(e.target.value),
+    placeholder: "F山田",
+    style: inputStyle,
+    autoFocus: true
+  })), /*#__PURE__*/React.createElement(Field, {
+    label: "チェック担当（任意）"
+  }, /*#__PURE__*/React.createElement("input", {
+    value: checker,
+    onChange: e => setChecker(e.target.value),
+    style: inputStyle
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    style: {
+      ...ghostBtn,
+      flex: 1
+    }
+  }, "キャンセル"), /*#__PURE__*/React.createElement("button", {
+    disabled: !name.trim(),
+    onClick: () => onSave(name.trim(), checker.trim()),
+    style: {
+      ...btn(name.trim() ? "#2a6ef5" : C.line),
+      flex: 2
+    }
+  }, "追加")));
+}
+
+/* ---------- データ層：共有DB（使えないときは端末内保存） ---------- */
+
+function useStore() {
+  const [db, setDb] = useState(undefined); // undefined=確認中 / null=使えない
+  const [teams, setTeams] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
+  const [loaded, setLoaded] = useState({
+    teams: false,
+    vehicles: false
+  });
+  const [slow, setSlow] = useState(false);
+  const [canWrite, setCanWrite] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let alive = true;
+    claude.use("db").then(d => {
+      if (alive) setDb(d || null);
+    });
+    claude.use("user").then(async u => {
+      if (!u || !alive) return;
+      try {
+        const ok = await u.can("data.write");
+        if (alive && ok === false) setCanWrite(false);
+      } catch (e) {/* 不明なら書ける前提 */}
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // 端末内保存モード
+  useEffect(() => {
+    if (db !== null) return;
+    const d = loadLocal();
+    setTeams(d.teams.sort(byOrder));
+    setVehicles(d.vehicles.sort(byOrder));
+    setLoaded({
+      teams: true,
+      vehicles: true
+    });
+  }, [db]);
+
+  // 共有DBモード：1回だけ購読
+  useEffect(() => {
+    if (!db) return;
+    const timer = setTimeout(() => setSlow(true), 10000);
+    const fail = e => {
+      clearTimeout(timer);
+      setError(e && e.code === "revoked" ? "データにアクセスできなくなりました" : "データを読み込めませんでした");
+    };
+    const listen = (name, setter) => db.collection(name).onSnapshot(snap => {
+      setter(snap.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      })).sort(byOrder));
+      if (!snap.metadata.fromCache) {
+        clearTimeout(timer);
+        setSlow(false);
+      }
+      setLoaded(l => ({
+        ...l,
+        [name]: true
+      }));
+    }, fail);
+    const u1 = listen("teams", setTeams);
+    const u2 = listen("vehicles", setVehicles);
+    return () => {
+      clearTimeout(timer);
+      u1();
+      u2();
+    };
+  }, [db]);
+  const writeFail = e => {
+    if (e && e.code === "invalid_argument") {
+      setCanWrite(false);
+      setError("このページを編集する権限がありません（閲覧のみ）");
+    } else if (e && e.code === "quota_exceeded") setError("保存容量の上限に達しました。不要な車輌を削除してください");else setError("保存できませんでした。通信状態を確認してもう一度お試しください");
+  };
+  const localWrite = (nextTeams, nextVehicles) => {
+    setTeams(nextTeams);
+    setVehicles(nextVehicles);
+    saveLocal({
+      teams: nextTeams,
+      vehicles: nextVehicles
+    });
+  };
+  const api = {
+    async saveVehicle(v) {
+      const order = v.order ?? Date.now();
+      const doc = {
+        ...v,
+        order
+      };
+      if (!db) {
+        const exists = vehicles.some(x => x.id === v.id);
+        return localWrite(teams, exists ? vehicles.map(x => x.id === v.id ? doc : x) : [...vehicles, doc]);
+      }
+      try {
+        await db.collection("vehicles").doc(v.id).set(stripId(doc));
+      } catch (e) {
+        writeFail(e);
+      }
+    },
+    async deleteVehicle(id) {
+      if (!db) return localWrite(teams, vehicles.filter(v => v.id !== id));
+      try {
+        await db.collection("vehicles").doc(id).delete();
+      } catch (e) {
+        writeFail(e);
+      }
+    },
+    async saveTeam(t) {
+      const doc = {
+        ...t,
+        order: t.order ?? Date.now()
+      };
+      if (!db) {
+        const exists = teams.some(x => x.id === t.id);
+        return localWrite(exists ? teams.map(x => x.id === t.id ? doc : x) : [...teams, doc], vehicles);
+      }
+      try {
+        await db.collection("teams").doc(t.id).set(stripId(doc));
+      } catch (e) {
+        writeFail(e);
+      }
+    },
+    async restore(d) {
+      if (!db) return localWrite(d.teams, d.vehicles);
+      try {
+        for (const t of teams) if (!d.teams.some(x => x.id === t.id)) await db.collection("teams").doc(t.id).delete();
+        for (const v of vehicles) if (!d.vehicles.some(x => x.id === v.id)) await db.collection("vehicles").doc(v.id).delete();
+        for (const t of d.teams) await db.collection("teams").doc(t.id).set(stripId(t));
+        for (const v of d.vehicles) await db.collection("vehicles").doc(v.id).set(stripId(v));
+      } catch (e) {
+        writeFail(e);
+      }
+    }
+  };
+  const ready = db !== undefined && loaded.teams && loaded.vehicles;
+  return {
+    mode: db ? "shared" : db === null ? "local" : "pending",
+    ready,
+    slow,
+    error,
+    setError,
+    canWrite,
+    teams,
+    vehicles,
+    api
+  };
+}
+
+/* ---------- メイン ---------- */
+
+function App() {
+  const store = useStore();
+  const {
+    teams,
+    vehicles: allVehicles,
+    api,
+    canWrite
+  } = store;
+  const data = {
+    teams,
+    vehicles: allVehicles
+  };
+  const [teamId, setTeamId] = useState(null);
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [cellEdit, setCellEdit] = useState(null); // { vehicle, month }
+  const [vehicleEdit, setVehicleEdit] = useState(null); // vehicle
+  const [confirmBox, setConfirmBox] = useState(null); // { message, okLabel, danger, onOk }
+  const [teamDialog, setTeamDialog] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [notesDraft, setNotesDraft] = useState(null);
+  const team = teams.find(t => t.id === teamId) || teams[0];
+  const vehicles = team ? allVehicles.filter(v => v.teamId === team.id) : [];
+  useEffect(() => {
+    setNotesDraft(null);
+  }, [team && team.id]);
+  const flash = msg => {
+    setNotice(msg);
+    setTimeout(() => setNotice(""), 2500);
+  };
+  const saveVehicle = v => {
+    api.saveVehicle(v);
+    setCellEdit(null);
+    setVehicleEdit(null);
+  };
+  const deleteVehicle = v => {
+    setConfirmBox({
+      message: `${v.plate}（${v.driver || "担当未設定"}）と点検記録をすべて削除します。よろしいですか？`,
+      okLabel: "削除する",
+      danger: true,
+      onOk: () => {
+        api.deleteVehicle(v.id);
+        setVehicleEdit(null);
+      }
+    });
+  };
+  const commitNotes = () => {
+    if (notesDraft === null || !team || notesDraft === (team.notes || "")) return;
+    api.saveTeam({
+      ...team,
+      notes: notesDraft
+    });
+  };
+  const addTeam = (name, checker) => {
+    const t = {
+      id: newId(),
+      name,
+      checker,
+      notes: "",
+      order: Date.now()
+    };
+    api.saveTeam(t);
+    setTeamId(t.id);
+    setTeamDialog(false);
+  };
+  const exportCSV = async () => {
+    try {
+      await saveFile(`車輌点検一覧_${year}年_${todayStamp()}.csv`, csvText(data, year));
+      flash("CSVを書き出しました");
+    } catch (e) {
+      flash("書き出しはキャンセルされました");
+    }
+  };
+  const exportJSON = async () => {
+    try {
+      await saveFile(`車輌点検_バックアップ_${todayStamp()}.json`, JSON.stringify(data, null, 1));
+      flash("バックアップを保存しました");
+    } catch (e) {
+      flash("保存はキャンセルされました");
+    }
+  };
+  const importJSON = e => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const d = JSON.parse(reader.result);
+        if (!Array.isArray(d.teams) || !Array.isArray(d.vehicles)) throw new Error();
+        setConfirmBox({
+          message: `現在のデータを、バックアップの内容（${d.teams.length}チーム・${d.vehicles.length}台）で置き換えます。よろしいですか？`,
+          okLabel: "置き換える",
+          danger: true,
+          onOk: () => {
+            api.restore(d);
+            setTeamId(null);
+            flash("バックアップから復元しました");
+          }
+        });
+      } catch (err) {
+        flash("バックアップファイルを読み込めませんでした");
+      }
+    };
+    reader.readAsText(file);
+  };
+  if (!store.ready) {
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        minHeight: "100vh",
+        background: C.bg,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontFamily: FONT,
+        color: C.sub,
+        fontSize: 14,
+        padding: 20,
+        textAlign: "center"
+      }
+    }, store.error || (store.slow ? "データに接続できません。通信状態を確認してください…" : "読み込み中…"));
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      minHeight: "100vh",
+      background: C.bg,
+      padding: "32px 16px",
+      fontFamily: FONT
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      maxWidth: 1400,
+      margin: "0 auto"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-end",
+      flexWrap: "wrap",
+      gap: 16,
+      marginBottom: 24
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      letterSpacing: 4,
+      color: C.dim,
+      marginBottom: 8,
+      textTransform: "uppercase"
+    }
+  }, "Vehicle Inspection"), /*#__PURE__*/React.createElement("h1", {
+    style: {
+      fontSize: 28,
+      fontWeight: 900,
+      color: C.text,
+      lineHeight: 1.2
+    }
+  }, "車輌点検一覧表"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.sub,
+      marginTop: 6
+    }
+  }, "㈱奥村商事 ・ ", store.mode === "shared" ? "共有データ（全員に反映）" : "この端末のみに保存", !canWrite ? " ・ 閲覧のみ" : "")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setYear(year - 1),
+    style: {
+      ...btn(C.line, C.sub),
+      width: 36
+    }
+  }, "‹"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 20,
+      fontWeight: 700,
+      color: C.text,
+      fontFamily: MONO,
+      minWidth: 80,
+      textAlign: "center"
+    }
+  }, year, "年"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setYear(year + 1),
+    style: {
+      ...btn(C.line, C.sub),
+      width: 36
+    }
+  }, "›"))), (store.error || store.slow && store.mode === "shared") && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: `${C.overdue}1a`,
+      border: `1px solid ${C.overdue}55`,
+      color: C.text,
+      borderRadius: 10,
+      padding: "10px 14px",
+      fontSize: 13,
+      marginBottom: 16,
+      display: "flex",
+      justifyContent: "space-between",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("span", null, store.error || "最新のデータを取得できていない可能性があります"), store.error && /*#__PURE__*/React.createElement("button", {
+    onClick: () => store.setError(""),
+    style: {
+      background: "none",
+      border: "none",
+      color: C.sub,
+      cursor: "pointer"
+    }
+  }, "×")), /*#__PURE__*/React.createElement(SummaryCards, {
+    vehicles: allVehicles,
+    year: year
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      flexWrap: "wrap",
+      marginBottom: 14
+    }
+  }, teams.map(t => {
+    const active = team && t.id === team.id;
+    const overdue = allVehicles.filter(v => v.teamId === t.id && !v.sold).flatMap(v => v.items.filter(i => i.year === year)).filter(i => itemStatus(i) === "overdue").length;
+    return /*#__PURE__*/React.createElement("button", {
+      key: t.id,
+      onClick: () => setTeamId(t.id),
+      style: {
+        padding: "8px 14px",
+        borderRadius: 20,
+        cursor: "pointer",
+        fontFamily: FONT,
+        fontSize: 13,
+        border: `1px solid ${active ? C.shaken : C.line}`,
+        background: active ? `${C.shaken}33` : C.panel,
+        color: active ? C.text : C.sub,
+        fontWeight: active ? 700 : 400
+      }
+    }, t.name, overdue > 0 && /*#__PURE__*/React.createElement("span", {
+      style: {
+        marginLeft: 6,
+        color: C.overdue,
+        fontFamily: MONO,
+        fontSize: 11
+      }
+    }, "●", overdue));
+  }), canWrite && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setTeamDialog(true),
+    style: {
+      ...ghostBtn,
+      borderRadius: 20,
+      padding: "8px 14px"
+    }
+  }, "＋ チーム")), !team && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.panel,
+      border: `1px solid ${C.line}`,
+      borderRadius: 16,
+      padding: 24,
+      color: C.sub,
+      fontSize: 14,
+      lineHeight: 1.8
+    }
+  }, "まだデータがありません。「＋ チーム」からチームを作るか、下の「バックアップから復元」でデータを読み込んでください。"), team && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      flexWrap: "wrap",
+      gap: 10,
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.sub
+    }
+  }, vehicles.length, "台", team.checker ? ` ・ チェック担当：${team.checker}` : "", canWrite ? " ・ マスをタップで点検を入力 / 車番をタップで車輌編集" : ""), canWrite && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setVehicleEdit({
+      plate: "",
+      driver: "",
+      expiry: "",
+      memo: "",
+      sold: false,
+      teamId: team.id,
+      items: []
+    }),
+    style: btn("#2a6ef5")
+  }, "＋ 車輌を追加")), /*#__PURE__*/React.createElement(InspectionTable, {
+    vehicles: vehicles,
+    year: year,
+    onCell: (v, m) => canWrite && setCellEdit({
+      vehicle: v,
+      month: m
+    }),
+    onVehicle: v => canWrite && setVehicleEdit(v)
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 14,
+      flexWrap: "wrap",
+      fontSize: 11,
+      color: C.sub,
+      marginTop: 10
+    }
+  }, ["done", "now", "overdue", "plan"].map(s => /*#__PURE__*/React.createElement("span", {
+    key: s
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C[s]
+    }
+  }, "■"), " ", STATUS_LABEL[s])), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.shaken
+    }
+  }, "▌"), " 車検")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.panel,
+      border: `1px solid ${C.line}`,
+      borderRadius: 16,
+      padding: 20,
+      marginTop: 20
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.dim,
+      letterSpacing: 2,
+      marginBottom: 10
+    }
+  }, team.name, " の備考"), /*#__PURE__*/React.createElement("textarea", {
+    value: notesDraft ?? (team.notes || ""),
+    rows: 3,
+    readOnly: !canWrite,
+    onChange: e => setNotesDraft(e.target.value),
+    onBlur: commitNotes,
+    placeholder: "車検証の依頼状況・請求の扱いなど（入力欄から離れると保存）",
+    style: {
+      ...inputStyle,
+      background: C.bg,
+      resize: "vertical"
+    }
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.panel,
+      border: `1px solid ${C.line}`,
+      borderRadius: 16,
+      padding: 20,
+      marginTop: 20
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.dim,
+      letterSpacing: 2,
+      marginBottom: 12
+    }
+  }, "DATA"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap",
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: exportCSV,
+    style: btn("#1e6f3f", "#d5f5e3")
+  }, "📊 ", year, "年をCSVで書き出し"), /*#__PURE__*/React.createElement("button", {
+    onClick: exportJSON,
+    style: ghostBtn
+  }, "バックアップ保存"), canWrite && /*#__PURE__*/React.createElement("label", {
+    style: {
+      ...ghostBtn,
+      display: "inline-block"
+    }
+  }, "バックアップから復元", /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: "application/json,.json",
+    onChange: importJSON,
+    style: {
+      display: "none"
+    }
+  })), notice && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: C.done
+    }
+  }, notice))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      marginTop: 20,
+      fontSize: 11,
+      color: "#444",
+      lineHeight: 1.8
+    }
+  }, store.mode === "shared" ? "※入力内容はこのページを共有している全員に反映されます" : "※データはこの端末内に保存されます", /*#__PURE__*/React.createElement("br", null), "※車検完了後は車輌編集から車検有効期限を更新してください")), cellEdit && /*#__PURE__*/React.createElement(ItemEditor, {
+    vehicle: cellEdit.vehicle,
+    year: year,
+    month: cellEdit.month,
+    onSave: saveVehicle,
+    onClose: () => setCellEdit(null)
+  }), vehicleEdit && /*#__PURE__*/React.createElement(VehicleEditor, {
+    vehicle: vehicleEdit,
+    teams: teams,
+    year: year,
+    onSave: saveVehicle,
+    onDelete: deleteVehicle,
+    onClose: () => setVehicleEdit(null)
+  }), teamDialog && /*#__PURE__*/React.createElement(TeamDialog, {
+    onSave: addTeam,
+    onClose: () => setTeamDialog(false)
+  }), confirmBox && /*#__PURE__*/React.createElement(ConfirmDialog, {
+    ...confirmBox,
+    onClose: () => setConfirmBox(null)
+  }));
+}
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(/*#__PURE__*/React.createElement(App, null));
+</script>
+</body>
+</html>
